@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use openmls::{
-    group::{GroupEpoch, GroupId},
+    group::{GroupContext, GroupEpoch, GroupId},
     prelude::{Capabilities, Ciphersuite, Extension, ExtensionType, Extensions, UnknownExtension},
 };
 use tap::Pipe;
@@ -69,7 +69,9 @@ impl HpqMlsInfo {
         self.pq_epoch = pq_epoch;
     }
 
-    pub fn from_extensions(extensions: &Extensions) -> Result<Option<Self>, tls_codec::Error> {
+    pub fn from_extensions(
+        extensions: &Extensions<GroupContext>,
+    ) -> Result<Option<Self>, tls_codec::Error> {
         if let Some(extension) = extensions.unknown(HPQMLS_EXTENSION_ID) {
             extension
                 .0

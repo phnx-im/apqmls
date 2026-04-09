@@ -6,8 +6,8 @@ use std::collections::HashSet;
 
 use openmls::{
     prelude::{
-        Capabilities, Ciphersuite, Extensions, KeyPackageBuilder, KeyPackageBundle,
-        KeyPackageNewError as OpenMlsKeyPackageNewError, KeyPackageVerifyError, Lifetime,
+        Capabilities, Ciphersuite, Extensions, KeyPackage, KeyPackageBuilder, KeyPackageBundle,
+        KeyPackageNewError as OpenMlsKeyPackageNewError, KeyPackageVerifyError, LeafNode, Lifetime,
         OpenMlsCrypto, ProtocolVersion,
     },
     storage::OpenMlsProvider,
@@ -80,7 +80,7 @@ impl HpqKeyPackageBuilder {
     }
 
     /// Set the key package extensions.
-    pub fn key_package_extensions(mut self, extensions: Extensions) -> Self {
+    pub fn key_package_extensions(mut self, extensions: Extensions<KeyPackage>) -> Self {
         self.t_kp_builder = self.t_kp_builder.key_package_extensions(extensions.clone());
         self.pq_kp_builder = self.pq_kp_builder.key_package_extensions(extensions);
         self
@@ -102,7 +102,7 @@ impl HpqKeyPackageBuilder {
     }
 
     /// Set the leaf node extensions.
-    pub fn leaf_node_extensions(mut self, extensions: Extensions) -> Self {
+    pub fn leaf_node_extensions(mut self, extensions: Extensions<LeafNode>) -> Self {
         self.t_kp_builder = self.t_kp_builder.leaf_node_extensions(extensions.clone());
         self.pq_kp_builder = self.pq_kp_builder.leaf_node_extensions(extensions);
         self

@@ -7,7 +7,10 @@ use openmls::{
         CommitBuilder as MlsGroupCommitBuilder, CommitBuilderStageError, CommitMessageBundle,
         CreateCommitError as OpenMlsCreateCommitError, GroupEpoch, Initial, QueuedProposal,
     },
-    prelude::{LeafNodeIndex, LeafNodeParameters, PreSharedKeyProposal, Proposal, ProposalType},
+    prelude::{
+        InvalidExtensionError, LeafNodeIndex, LeafNodeParameters, PreSharedKeyProposal, Proposal,
+        ProposalType,
+    },
     storage::OpenMlsProvider,
 };
 use tap::Pipe as _;
@@ -33,6 +36,8 @@ pub enum CreateCommitError<StorageError> {
     MalformedExtension(#[from] tls_codec::Error),
     #[error(transparent)]
     Psk(#[from] HpqPskError<StorageError>),
+    #[error(transparent)]
+    Extension(#[from] InvalidExtensionError),
 }
 
 /// A message bundle resulting from a commit operation in HPQMLS.
@@ -97,7 +102,7 @@ impl HpqCommitMessageBundle {
 #[derive(Debug, Clone, Default)]
 struct ConfigValues {
     consume_proposal_store: Option<bool>,
-    create_group_info: Option<bool>,
+    // create_group_info: Option<bool>,
     force_self_update: Option<bool>,
     t_proposals: Vec<Proposal>,
     t_leaf_node_parameters: Option<LeafNodeParameters>,
@@ -114,9 +119,9 @@ impl ConfigValues {
         if let Some(consume) = self.consume_proposal_store {
             builder = builder.consume_proposal_store(consume);
         }
-        if let Some(create) = self.create_group_info {
-            builder = builder.create_group_info(create);
-        }
+        // if let Some(create) = self.create_group_info {
+        //     builder = builder.create_group_info(create);
+        // }
         if let Some(force) = self.force_self_update {
             builder = builder.force_self_update(force);
         }
@@ -166,13 +171,13 @@ impl<'a> CommitBuilder<'a> {
         self
     }
 
-    /// Sets whether or not a [`openmls::messages::group_info::GroupInfo`] should be created when
-    /// the commit is staged. Defaults to the value of the [`openmls::group::MlsGroup`]s
-    /// [`openmls::group::MlsGroupJoinConfig`].
-    pub fn create_group_info(mut self, create_group_info: bool) -> Self {
-        self.values.create_group_info = Some(create_group_info);
-        self
-    }
+    // /// Sets whether or not a [`openmls::messages::group_info::GroupInfo`] should be created when
+    // /// the commit is staged. Defaults to the value of the [`openmls::group::MlsGroup`]s
+    // /// [`openmls::group::MlsGroupJoinConfig`].
+    // pub fn create_group_info(mut self, create_group_info: bool) -> Self {
+    //     self.values.create_group_info = Some(create_group_info);
+    //     self
+    // }
 
     /// Sets whether or not the commit should force a self-update. Defaults to `false`.
     pub fn force_self_update(mut self, force_self_update: bool) -> Self {
@@ -260,7 +265,7 @@ impl<'a> CommitBuilder<'a> {
         );
 
         let mut current_extensions = self.group.t_group.extensions().clone();
-        current_extensions.add_or_replace(current_hpq_info.to_extension()?);
+        current_extensions.add_or_replace(current_hpq_info.to_extension()?)?;
 
         // Create the PQ commit first s.t. we can export the PSK for the T group.
         let pq_result = self
@@ -268,7 +273,7 @@ impl<'a> CommitBuilder<'a> {
             .pq_group
             .commit_builder()
             .pipe(|b| self.values.apply::<false>(b))
-            .propose_group_context_extensions(current_extensions.clone())
+            .propose_group_context_extensions(current_extensions.clone())?
             .load_psks(provider.storage())?
             .build(provider.rand(), provider.crypto(), signer.pq_signer(), pq_f)?
             .stage_commit(provider)?;
@@ -289,7 +294,7 @@ impl<'a> CommitBuilder<'a> {
             .commit_builder()
             .pipe(|b| self.values.apply::<true>(b))
             .add_proposal(psk_proposal)
-            .propose_group_context_extensions(current_extensions)
+            .propose_group_context_extensions(current_extensions)?
             .load_psks(provider.storage())?
             .build(provider.rand(), provider.crypto(), signer.t_signer(), t_f)?
             .stage_commit(provider)?;
