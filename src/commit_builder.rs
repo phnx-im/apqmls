@@ -171,14 +171,6 @@ impl<'a> CommitBuilder<'a> {
         self
     }
 
-    // /// Sets whether or not a [`openmls::messages::group_info::GroupInfo`] should be created when
-    // /// the commit is staged. Defaults to the value of the [`openmls::group::MlsGroup`]s
-    // /// [`openmls::group::MlsGroupJoinConfig`].
-    // pub fn create_group_info(mut self, create_group_info: bool) -> Self {
-    //     self.values.create_group_info = Some(create_group_info);
-    //     self
-    // }
-
     /// Sets whether or not the commit should force a self-update. Defaults to `false`.
     pub fn force_self_update(mut self, force_self_update: bool) -> Self {
         self.values.force_self_update = Some(force_self_update);
