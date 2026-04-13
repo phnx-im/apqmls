@@ -60,7 +60,7 @@ impl HpqMlsInfo {
     pub(super) fn to_extension(&self) -> Result<Extension, tls_codec::Error> {
         self.tls_serialize_detached()?
             .pipe(UnknownExtension)
-            .pipe(|ue| Extension::Unknown(HPQMLS_EXTENSION_ID, ue))
+            .pipe(|extension| Extension::Unknown(HPQMLS_EXTENSION_ID, extension))
             .pipe(Ok)
     }
 

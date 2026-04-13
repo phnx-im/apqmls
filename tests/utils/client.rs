@@ -27,11 +27,11 @@ impl<Provider: OpenMlsProvider> Client<Provider> {
         }
     }
 
-    pub fn generate_key_package(&self, cipersuite: HpqCiphersuite) -> HpqKeyPackage {
+    pub fn generate_key_package(&self, ciphersuite: HpqCiphersuite) -> HpqKeyPackage {
         HpqKeyPackage::builder()
             .build(
                 &self.provider,
-                cipersuite,
+                ciphersuite,
                 &self.signer,
                 self.credential_with_key.clone(),
             )
