@@ -39,3 +39,8 @@ openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", branch
 hpke-rs = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }
 hpke-rs-crypto = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }
 hpke-rs-rust-crypto = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }
+
+[package.metadata.cargo-machete]
+ignored = [
+    "openmls_memory_storage", # include to enable the `extensions-draft-08` feature
+]
