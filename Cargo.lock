@@ -53,6 +53,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
+name = "apqmls"
+version = "0.1.0"
+dependencies = [
+ "openmls",
+ "openmls_basic_credential",
+ "openmls_memory_storage",
+ "openmls_rust_crypto",
+ "openmls_traits",
+ "serde",
+ "tap",
+ "thiserror",
+ "tls_codec",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -747,21 +762,6 @@ dependencies = [
  "x-wing",
  "x25519-dalek 2.0.1",
  "zeroize",
-]
-
-[[package]]
-name = "hpqmls"
-version = "0.1.0"
-dependencies = [
- "openmls",
- "openmls_basic_credential",
- "openmls_memory_storage",
- "openmls_rust_crypto",
- "openmls_traits",
- "serde",
- "tap",
- "thiserror",
- "tls_codec",
 ]
 
 [[package]]

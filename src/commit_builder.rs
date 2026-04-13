@@ -17,48 +17,48 @@ use tap::Pipe as _;
 use thiserror::Error;
 
 use crate::{
-    HpqMlsGroup,
-    authentication::HpqSigner,
-    messages::{HpqGroupInfo, HpqKeyPackage, HpqMlsMessageOut, HpqWelcome},
-    psk::{HpqPskError, derive_and_store_psk},
+    ApqMlsGroup,
+    authentication::ApqSigner,
+    messages::{ApqGroupInfo, ApqKeyPackage, ApqMlsMessageOut, ApqWelcome},
+    psk::{ApqPskError, derive_and_store_psk},
 };
 
-/// Error while creating a commit in HPQMLS.
+/// Error while creating a commit in APQMLS.
 #[derive(Debug, Error)]
 pub enum CreateCommitError<StorageError> {
     #[error("Failed to build commit: {0}")]
     BuildCommit(#[from] OpenMlsCreateCommitError),
     #[error("Failed to stage commit: {0}")]
     StageCommit(#[from] CommitBuilderStageError<StorageError>),
-    #[error("Missing HPQInfo extension")]
-    MissingHpqInfo,
+    #[error("Missing APQInfo extension")]
+    MissingApqInfo,
     #[error("Malformed extension: {0}")]
     MalformedExtension(#[from] tls_codec::Error),
     #[error(transparent)]
-    Psk(#[from] HpqPskError<StorageError>),
+    Psk(#[from] ApqPskError<StorageError>),
     #[error(transparent)]
     Extension(#[from] InvalidExtensionError),
 }
 
-/// A message bundle resulting from a commit operation in HPQMLS.
-pub struct HpqCommitMessageBundle {
-    pub commit: HpqMlsMessageOut,
-    pub welcome: Option<HpqWelcome>,
-    pub group_info: Option<HpqGroupInfo>,
+/// A message bundle resulting from a commit operation in APQMLS.
+pub struct ApqCommitMessageBundle {
+    pub commit: ApqMlsMessageOut,
+    pub welcome: Option<ApqWelcome>,
+    pub group_info: Option<ApqGroupInfo>,
 }
 
-impl HpqCommitMessageBundle {
+impl ApqCommitMessageBundle {
     fn from_bundles(t_bundle: CommitMessageBundle, pq_bundle: CommitMessageBundle) -> Self {
         let (t_commit, t_welcome, t_group_info) = t_bundle.into_contents();
         let (pq_commit, pq_welcome, pq_group_info) = pq_bundle.into_contents();
 
-        let commit = HpqMlsMessageOut {
+        let commit = ApqMlsMessageOut {
             t_message: t_commit,
             pq_message: pq_commit,
         };
 
         let welcome = match (t_welcome, pq_welcome) {
-            (Some(t), Some(pq)) => Some(HpqWelcome {
+            (Some(t), Some(pq)) => Some(ApqWelcome {
                 t_welcome: t,
                 pq_welcome: pq,
             }),
@@ -71,7 +71,7 @@ impl HpqCommitMessageBundle {
 
         let group_info = t_group_info
             .zip(pq_group_info)
-            .map(|(t_group_info, pq_group_info)| HpqGroupInfo {
+            .map(|(t_group_info, pq_group_info)| ApqGroupInfo {
                 t_group_info,
                 pq_group_info,
             });
@@ -84,17 +84,17 @@ impl HpqCommitMessageBundle {
     }
 
     /// Consumes the bundle and returns the commit message.
-    pub fn into_message_out(self) -> HpqMlsMessageOut {
+    pub fn into_message_out(self) -> ApqMlsMessageOut {
         self.commit
     }
 
     /// Consumes the bundle and returns the welcome message, if any.
-    pub fn into_welcome(self) -> Option<HpqWelcome> {
+    pub fn into_welcome(self) -> Option<ApqWelcome> {
         self.welcome
     }
 
     /// Consumes the bundle and returns the group info, if any.
-    pub fn into_group_info(self) -> Option<HpqGroupInfo> {
+    pub fn into_group_info(self) -> Option<ApqGroupInfo> {
         self.group_info
     }
 }
@@ -107,7 +107,7 @@ struct ConfigValues {
     t_proposals: Vec<Proposal>,
     t_leaf_node_parameters: Option<LeafNodeParameters>,
     pq_leaf_node_parameters: Option<LeafNodeParameters>,
-    proposed_adds: Vec<HpqKeyPackage>,
+    proposed_adds: Vec<ApqKeyPackage>,
     proposed_removals: Vec<LeafNodeIndex>,
 }
 
@@ -148,16 +148,16 @@ impl ConfigValues {
     }
 }
 
-/// A builder for creating commits in an HPQMLS group. This builder can be used
+/// A builder for creating commits in an APQMLS group. This builder can be used
 /// to affect membership changes and issue full updates.
 pub struct CommitBuilder<'a> {
-    group: &'a mut HpqMlsGroup,
+    group: &'a mut ApqMlsGroup,
     values: ConfigValues,
 }
 
 impl<'a> CommitBuilder<'a> {
     /// returns a new [`CommitBuilder`] for the given [`openmls::group::MlsGroup`].
-    pub fn new(group: &'a mut HpqMlsGroup) -> Self {
+    pub fn new(group: &'a mut ApqMlsGroup) -> Self {
         Self {
             group,
             values: ConfigValues::default(),
@@ -219,7 +219,7 @@ impl<'a> CommitBuilder<'a> {
     /// Adds an Add proposal for each of the provided [`openmls::key_packages::KeyPackage`] tuples
     /// to the list of proposals to be committed. The first KeyPackage in each tuple must be the
     /// traditional one and the second the post-quantum one.
-    pub fn propose_adds(mut self, key_packages: impl IntoIterator<Item = HpqKeyPackage>) -> Self {
+    pub fn propose_adds(mut self, key_packages: impl IntoIterator<Item = ApqKeyPackage>) -> Self {
         self.values.proposed_adds.extend(key_packages);
         self
     }
@@ -238,26 +238,26 @@ impl<'a> CommitBuilder<'a> {
     /// - stage the commit
     ///
     /// TODO: Split this up to enable sans-io usage.
-    pub fn finalize<S: HpqSigner, Provider: OpenMlsProvider>(
+    pub fn finalize<S: ApqSigner, Provider: OpenMlsProvider>(
         self,
         provider: &Provider,
         signer: &S,
         t_f: impl FnMut(&QueuedProposal) -> bool,
         pq_f: impl FnMut(&QueuedProposal) -> bool,
-    ) -> Result<HpqCommitMessageBundle, CreateCommitError<Provider::StorageError>> {
-        let mut current_hpq_info = self
+    ) -> Result<ApqCommitMessageBundle, CreateCommitError<Provider::StorageError>> {
+        let mut current_apq_info = self
             .group
-            .hpq_info()
-            .ok_or_else(|| CreateCommitError::MissingHpqInfo)?;
+            .apq_info()
+            .ok_or_else(|| CreateCommitError::MissingApqInfo)?;
         let new_t_epoch = self.group.t_group.epoch().as_u64() + 1;
         let new_pq_epoch = self.group.pq_group.epoch().as_u64() + 1;
-        current_hpq_info.set_epoch(
+        current_apq_info.set_epoch(
             GroupEpoch::from(new_t_epoch),
             GroupEpoch::from(new_pq_epoch),
         );
 
         let mut current_extensions = self.group.t_group.extensions().clone();
-        current_extensions.add_or_replace(current_hpq_info.to_extension()?)?;
+        current_extensions.add_or_replace(current_apq_info.to_extension()?)?;
 
         // Create the PQ commit first s.t. we can export the PSK for the T group.
         let pq_result = self
@@ -290,6 +290,6 @@ impl<'a> CommitBuilder<'a> {
             .load_psks(provider.storage())?
             .build(provider.rand(), provider.crypto(), signer.t_signer(), t_f)?
             .stage_commit(provider)?;
-        Ok(HpqCommitMessageBundle::from_bundles(t_result, pq_result))
+        Ok(ApqCommitMessageBundle::from_bundles(t_result, pq_result))
     }
 }

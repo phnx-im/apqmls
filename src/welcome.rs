@@ -9,35 +9,35 @@ use openmls::{
 use thiserror::Error;
 
 use crate::{
-    HpqMlsGroup,
-    messages::{HpqRatchetTreeIn, HpqWelcome},
-    psk::{HpqPskError, derive_and_store_psk},
+    ApqMlsGroup,
+    messages::{ApqRatchetTreeIn, ApqWelcome},
+    psk::{ApqPskError, derive_and_store_psk},
 };
 
-/// Errors that can occur when creating a new [`HpqMlsGroup`] from a welcome
+/// Errors that can occur when creating a new [`ApqMlsGroup`] from a welcome
 /// message.
 #[derive(Debug, Error)]
 pub enum WelcomeError<StorageError> {
     #[error("Failed to process welcome message: {0}")]
     Processing(#[from] OpenMlsWelcomeError<StorageError>),
     #[error(transparent)]
-    Psk(#[from] HpqPskError<StorageError>),
+    Psk(#[from] ApqPskError<StorageError>),
 }
 
-/// A staged HPQ welcome.
-pub struct StagedHpqWelcome {
+/// A staged APQ welcome.
+pub struct StagedApqWelcome {
     t_staged_welcome: StagedWelcome,
     pq_staged_welcome: StagedWelcome,
 }
 
-impl HpqMlsGroup {
-    /// Creates a new [`HpqMlsGroup`] from a welcome message.
+impl ApqMlsGroup {
+    /// Creates a new [`ApqMlsGroup`] from a welcome message.
     // TODO: Split into sans-io friendly parts.
     pub fn new_from_welcome<Provider: OpenMlsProvider>(
         provider: &Provider,
         mls_group_config: &MlsGroupJoinConfig,
-        welcome: HpqWelcome,
-        ratchet_tree: Option<HpqRatchetTreeIn>,
+        welcome: ApqWelcome,
+        ratchet_tree: Option<ApqRatchetTreeIn>,
     ) -> Result<Self, WelcomeError<Provider::StorageError>> {
         let (t_ratchet_tree, pq_ratchet_tree) = match ratchet_tree {
             Some(r) => (Some(r.t_ratchet_tree), Some(r.pq_ratchet_tree)),
@@ -67,13 +67,13 @@ impl HpqMlsGroup {
     }
 }
 
-impl StagedHpqWelcome {
-    /// Creates a new [`StagedHpqWelcome`] from a welcome message.
+impl StagedApqWelcome {
+    /// Creates a new [`StagedApqWelcome`] from a welcome message.
     pub fn new_from_welcome<Provider: OpenMlsProvider>(
         provider: &Provider,
         mls_group_config: &MlsGroupJoinConfig,
-        welcome: HpqWelcome,
-        ratchet_tree: Option<HpqRatchetTreeIn>,
+        welcome: ApqWelcome,
+        ratchet_tree: Option<ApqRatchetTreeIn>,
     ) -> Result<Self, WelcomeError<Provider::StorageError>> {
         let (t_ratchet_tree, pq_ratchet_tree) = match ratchet_tree {
             Some(r) => (Some(r.t_ratchet_tree), Some(r.pq_ratchet_tree)),
@@ -92,20 +92,20 @@ impl StagedHpqWelcome {
             pq_ratchet_tree,
         )?;
 
-        Ok(StagedHpqWelcome {
+        Ok(StagedApqWelcome {
             t_staged_welcome,
             pq_staged_welcome,
         })
     }
 
-    /// Consumes the staged welcome and creates a new [`HpqMlsGroup`].
+    /// Consumes the staged welcome and creates a new [`ApqMlsGroup`].
     pub fn into_group<Provider: OpenMlsProvider>(
         self,
         provider: &Provider,
-    ) -> Result<HpqMlsGroup, WelcomeError<Provider::StorageError>> {
+    ) -> Result<ApqMlsGroup, WelcomeError<Provider::StorageError>> {
         let t_group = self.t_staged_welcome.into_group(provider)?;
         let pq_group = self.pq_staged_welcome.into_group(provider)?;
 
-        Ok(HpqMlsGroup { t_group, pq_group })
+        Ok(ApqMlsGroup { t_group, pq_group })
     }
 }

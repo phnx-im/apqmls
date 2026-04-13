@@ -15,60 +15,60 @@ use openmls::{
 use serde::{Deserialize, Serialize};
 use tls_codec::{Deserialize as _, Serialize as _, TlsDeserialize, TlsSerialize, TlsSize};
 
-use crate::{HpqGroupId, authentication::HpqVerifyingKey, extension::PqtMode};
+use crate::{ApqGroupId, authentication::ApqVerifyingKey, extension::PqtMode};
 
-/// An incoming message for processing by an `[HpqMlsGroup]`.
+/// An incoming message for processing by an [`crate::ApqMlsGroup`].
 #[derive(Debug, Clone, TlsDeserialize, TlsSize)]
-pub struct HpqMlsMessageIn {
+pub struct ApqMlsMessageIn {
     pub(crate) t_message: MlsMessageIn,
     pub(crate) pq_message: MlsMessageIn,
 }
 
-impl HpqMlsMessageIn {
-    pub fn into_welcome(self) -> Option<HpqWelcome> {
+impl ApqMlsMessageIn {
+    pub fn into_welcome(self) -> Option<ApqWelcome> {
         let MlsMessageBodyIn::Welcome(t_welcome) = self.t_message.extract() else {
             return None;
         };
         let MlsMessageBodyIn::Welcome(pq_welcome) = self.pq_message.extract() else {
             return None;
         };
-        Some(HpqWelcome {
+        Some(ApqWelcome {
             t_welcome,
             pq_welcome,
         })
     }
 
-    pub fn into_key_package(self) -> Option<HpqKeyPackageIn> {
+    pub fn into_key_package(self) -> Option<ApqKeyPackageIn> {
         let MlsMessageBodyIn::KeyPackage(t_key_package) = self.t_message.extract() else {
             return None;
         };
         let MlsMessageBodyIn::KeyPackage(pq_key_package) = self.pq_message.extract() else {
             return None;
         };
-        Some(HpqKeyPackageIn {
+        Some(ApqKeyPackageIn {
             t_key_package,
             pq_key_package,
         })
     }
 
-    pub fn into_protocol_message(self) -> Option<HpqProtocolMessage> {
+    pub fn into_protocol_message(self) -> Option<ApqProtocolMessage> {
         let t_protocol_message = self.t_message.try_into_protocol_message().ok()?;
         let pq_protocol_message = self.pq_message.try_into_protocol_message().ok()?;
-        Some(HpqProtocolMessage {
+        Some(ApqProtocolMessage {
             t_protocol_message,
             pq_protocol_message,
         })
     }
 }
 
-pub struct HpqProtocolMessage {
+pub struct ApqProtocolMessage {
     pub(crate) t_protocol_message: ProtocolMessage,
     pub(crate) pq_protocol_message: ProtocolMessage,
 }
 
-impl HpqProtocolMessage {
-    pub fn group_id(&self) -> HpqGroupId {
-        HpqGroupId {
+impl ApqProtocolMessage {
+    pub fn group_id(&self) -> ApqGroupId {
+        ApqGroupId {
             t_group_id: self.t_protocol_message.group_id().clone(),
             pq_group_id: self.pq_protocol_message.group_id().clone(),
         }
@@ -83,72 +83,72 @@ impl HpqProtocolMessage {
     }
 }
 
-/// An outgoing message from an `[HpqMlsGroup]`.
+/// An outgoing message from an [`crate::ApqMlsGroup`].
 #[derive(Debug, Clone, TlsSerialize, TlsSize, Serialize, Deserialize)]
-pub struct HpqMlsMessageOut {
+pub struct ApqMlsMessageOut {
     pub(crate) t_message: MlsMessageOut,
     pub(crate) pq_message: MlsMessageOut,
 }
 
-impl TryFrom<HpqMlsMessageOut> for HpqMlsMessageIn {
+impl TryFrom<ApqMlsMessageOut> for ApqMlsMessageIn {
     type Error = tls_codec::Error;
 
-    fn try_from(value: HpqMlsMessageOut) -> Result<Self, Self::Error> {
+    fn try_from(value: ApqMlsMessageOut) -> Result<Self, Self::Error> {
         let serialied_t_message = value.t_message.tls_serialize_detached()?;
         let serialized_pq_message = value.pq_message.tls_serialize_detached()?;
         let t_message_in = MlsMessageIn::tls_deserialize_exact(&serialied_t_message)?;
         let pq_message_in = MlsMessageIn::tls_deserialize_exact(&serialized_pq_message)?;
-        Ok(HpqMlsMessageIn {
+        Ok(ApqMlsMessageIn {
             t_message: t_message_in,
             pq_message: pq_message_in,
         })
     }
 }
 
-/// A welcome message for joining an `[HpqMlsGroup]`.
-pub struct HpqWelcome {
+/// A welcome message for joining an [`crate::ApqMlsGroup`].
+pub struct ApqWelcome {
     pub(crate) t_welcome: Welcome,
     pub(crate) pq_welcome: Welcome,
 }
 
-impl From<HpqWelcome> for HpqMlsMessageOut {
-    fn from(value: HpqWelcome) -> Self {
-        HpqMlsMessageOut {
+impl From<ApqWelcome> for ApqMlsMessageOut {
+    fn from(value: ApqWelcome) -> Self {
+        ApqMlsMessageOut {
             t_message: MlsMessageOut::from_welcome(value.t_welcome, ProtocolVersion::default()),
             pq_message: MlsMessageOut::from_welcome(value.pq_welcome, ProtocolVersion::default()),
         }
     }
 }
 
-/// A ratchet tree for an `[HpqMlsGroup]`.
-pub struct HpqRatchetTree {
+/// A ratchet tree for an [`crate::ApqMlsGroup`].
+pub struct ApqRatchetTree {
     pub(crate) t_ratchet_tree: RatchetTree,
     pub(crate) pq_ratchet_tree: RatchetTree,
 }
 
-impl From<HpqRatchetTree> for HpqRatchetTreeIn {
-    fn from(value: HpqRatchetTree) -> Self {
-        HpqRatchetTreeIn {
+impl From<ApqRatchetTree> for ApqRatchetTreeIn {
+    fn from(value: ApqRatchetTree) -> Self {
+        ApqRatchetTreeIn {
             t_ratchet_tree: value.t_ratchet_tree.into(),
             pq_ratchet_tree: value.pq_ratchet_tree.into(),
         }
     }
 }
 
-/// An unverified ratchet tree for an `[HpqMlsGroup]`.
-pub struct HpqRatchetTreeIn {
+/// An unverified ratchet tree for an [`crate::ApqMlsGroup`].
+pub struct ApqRatchetTreeIn {
     pub(crate) t_ratchet_tree: RatchetTreeIn,
     pub(crate) pq_ratchet_tree: RatchetTreeIn,
 }
 
-/// A key package to add members to an `[HpqMlsGroup]`.
+/// A key package to add members to an [`crate::ApqMlsGroup`].
 #[derive(Debug, Clone)]
-pub struct HpqKeyPackage {
+pub struct ApqKeyPackage {
     pub(crate) t_key_package: KeyPackage,
     pub(crate) pq_key_package: KeyPackage,
 }
 
-impl HpqKeyPackage {
+impl ApqKeyPackage {
     pub fn mode(&self) -> PqtMode {
         match self.pq_key_package.ciphersuite() {
             Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87 => PqtMode::ConfAndAuth,
@@ -167,49 +167,49 @@ impl HpqKeyPackage {
     }
 }
 
-impl From<HpqKeyPackage> for HpqMlsMessageOut {
-    fn from(value: HpqKeyPackage) -> Self {
-        HpqMlsMessageOut {
+impl From<ApqKeyPackage> for ApqMlsMessageOut {
+    fn from(value: ApqKeyPackage) -> Self {
+        ApqMlsMessageOut {
             t_message: MlsMessageOut::from(value.t_key_package),
             pq_message: MlsMessageOut::from(value.pq_key_package),
         }
     }
 }
 
-/// An unverified key package for adding members to an `[HpqMlsGroup]`.
-pub struct HpqKeyPackageIn {
+/// An unverified key package for adding members to an [`crate::ApqMlsGroup`].
+pub struct ApqKeyPackageIn {
     pub(crate) t_key_package: KeyPackageIn,
     pub(crate) pq_key_package: KeyPackageIn,
 }
 
-/// The group info of an `[HpqMlsGroup]`.
-pub struct HpqGroupInfo {
+/// The group info of an [`crate::ApqMlsGroup`].
+pub struct ApqGroupInfo {
     pub(crate) t_group_info: GroupInfo,
     pub(crate) pq_group_info: GroupInfo,
 }
 
-impl From<HpqGroupInfo> for HpqMlsMessageOut {
-    fn from(value: HpqGroupInfo) -> Self {
-        HpqMlsMessageOut {
+impl From<ApqGroupInfo> for ApqMlsMessageOut {
+    fn from(value: ApqGroupInfo) -> Self {
+        ApqMlsMessageOut {
             t_message: MlsMessageOut::from(value.t_group_info),
             pq_message: MlsMessageOut::from(value.pq_group_info),
         }
     }
 }
 
-/// A verifiable group info for an `[HpqMlsGroup]`.
-pub struct VerifiableHpqGroupInfo {
+/// A verifiable group info for an [`crate::ApqMlsGroup`].
+pub struct VerifiableApqGroupInfo {
     pub(crate) t_group_info: VerifiableGroupInfo,
     pub(crate) pq_group_info: VerifiableGroupInfo,
 }
 
-impl VerifiableHpqGroupInfo {
-    /// Verifies the group info and returns the contained [`HpqGroupInfo`].
+impl VerifiableApqGroupInfo {
+    /// Verifies the group info and returns the contained [`ApqGroupInfo`].
     pub fn verify(
         self,
         provider: &impl OpenMlsCrypto,
-        verifying_key: &HpqVerifyingKey,
-    ) -> Result<HpqGroupInfo, SignatureError> {
+        verifying_key: &ApqVerifyingKey,
+    ) -> Result<ApqGroupInfo, SignatureError> {
         let t_verifying_key = OpenMlsSignaturePublicKey::from_signature_key(
             verifying_key.t_verifying_key.clone(),
             self.t_group_info.ciphersuite().signature_algorithm(),
@@ -218,7 +218,7 @@ impl VerifiableHpqGroupInfo {
             verifying_key.pq_verifying_key.clone(),
             self.pq_group_info.ciphersuite().signature_algorithm(),
         );
-        Ok(HpqGroupInfo {
+        Ok(ApqGroupInfo {
             t_group_info: self.t_group_info.verify(provider, &t_verifying_key)?,
             pq_group_info: self.pq_group_info.verify(provider, &pq_verifying_key)?,
         })

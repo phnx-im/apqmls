@@ -5,17 +5,17 @@
 use openmls::{group::ExportGroupInfoError, prelude::OpenMlsCrypto};
 
 use crate::{
-    HpqMlsGroup,
-    authentication::HpqSigner,
-    messages::{HpqMlsMessageOut, HpqRatchetTree},
+    ApqMlsGroup,
+    authentication::ApqSigner,
+    messages::{ApqMlsMessageOut, ApqRatchetTree},
 };
 
-impl HpqMlsGroup {
+impl ApqMlsGroup {
     /// Export the ratchet tree of the group.
-    pub fn export_ratchet_tree(&self) -> HpqRatchetTree {
+    pub fn export_ratchet_tree(&self) -> ApqRatchetTree {
         let t_ratchet_tree = self.t_group.export_ratchet_tree();
         let pq_ratchet_tree = self.pq_group.export_ratchet_tree();
-        HpqRatchetTree {
+        ApqRatchetTree {
             t_ratchet_tree,
             pq_ratchet_tree,
         }
@@ -25,16 +25,16 @@ impl HpqMlsGroup {
     pub fn export_group_info(
         &self,
         crypto: &impl OpenMlsCrypto,
-        signer: &impl HpqSigner,
+        signer: &impl ApqSigner,
         with_ratchet_tree: bool,
-    ) -> Result<HpqMlsMessageOut, ExportGroupInfoError> {
+    ) -> Result<ApqMlsMessageOut, ExportGroupInfoError> {
         let t_group_info =
             self.t_group
                 .export_group_info(crypto, signer.t_signer(), with_ratchet_tree)?;
         let pq_group_info =
             self.pq_group
                 .export_group_info(crypto, signer.pq_signer(), with_ratchet_tree)?;
-        let group_info = HpqMlsMessageOut {
+        let group_info = ApqMlsMessageOut {
             t_message: t_group_info,
             pq_message: pq_group_info,
         };
