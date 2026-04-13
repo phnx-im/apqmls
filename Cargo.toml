@@ -29,8 +29,13 @@ tls_codec = "0.4.2"
 openmls_rust_crypto = { git = "https://github.com/openmls/openmls.git" }
 
 [patch."https://github.com/openmls/openmls.git"]
-openmls = { git = "https://github.com/boxdot/openmls.git", branch = "konrad/hpqmls_dep_branch" }
-openmls_basic_credential = { git = "https://github.com/boxdot/openmls.git", branch = "konrad/hpqmls_dep_branch" }
-openmls_rust_crypto = { git = "https://github.com/boxdot/openmls.git", branch = "konrad/hpqmls_dep_branch" }
-openmls_traits = { git = "https://github.com/boxdot/openmls.git", branch = "konrad/hpqmls_dep_branch" }
-openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", branch = "konrad/hpqmls_dep_branch" }
+openmls = { git = "https://github.com/boxdot/openmls.git", branch = "dima/post-quantum-support" }
+openmls_basic_credential = { git = "https://github.com/boxdot/openmls.git", branch = "dima/post-quantum-support" }
+openmls_rust_crypto = { git = "https://github.com/boxdot/openmls.git", branch = "dima/post-quantum-support" }
+openmls_traits = { git = "https://github.com/boxdot/openmls.git", branch = "dima/post-quantum-support" }
+openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", branch = "dima/post-quantum-support" }
+
+[patch.crates-io]
+hpke-rs = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }
+hpke-rs-crypto = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }
+hpke-rs-rust-crypto = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }

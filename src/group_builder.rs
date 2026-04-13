@@ -124,6 +124,8 @@ impl GroupBuilder {
             .add_or_replace(hpq_mls_extension.clone())?;
         self.pq_extensions.add_or_replace(hpq_mls_extension)?;
 
+        dbg!(&ciphersuite.pq_ciphersuite);
+
         let t_group = self
             .t_group_builder
             .ciphersuite(ciphersuite.t_ciphersuite)
