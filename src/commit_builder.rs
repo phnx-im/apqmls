@@ -102,7 +102,6 @@ impl ApqCommitMessageBundle {
 #[derive(Debug, Clone, Default)]
 struct ConfigValues {
     consume_proposal_store: Option<bool>,
-    // create_group_info: Option<bool>,
     force_self_update: Option<bool>,
     t_proposals: Vec<Proposal>,
     t_leaf_node_parameters: Option<LeafNodeParameters>,
@@ -119,9 +118,6 @@ impl ConfigValues {
         if let Some(consume) = self.consume_proposal_store {
             builder = builder.consume_proposal_store(consume);
         }
-        // if let Some(create) = self.create_group_info {
-        //     builder = builder.create_group_info(create);
-        // }
         if let Some(force) = self.force_self_update {
             builder = builder.force_self_update(force);
         }

@@ -18,7 +18,7 @@ use thiserror::Error;
 
 use crate::{
     ApqCiphersuite,
-    authentication::{ApqSigner, ApqCredentialWithKey},
+    authentication::{ApqCredentialWithKey, ApqSigner},
     extension::ensure_extension_support,
     messages::{ApqKeyPackage, ApqKeyPackageIn},
 };

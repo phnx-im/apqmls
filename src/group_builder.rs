@@ -18,8 +18,8 @@ use tap::Pipe as _;
 use thiserror::Error;
 
 use crate::{
-    ApqGroupId, ApqMlsGroup, ApqCiphersuite,
-    authentication::{ApqSigner, ApqCredentialWithKey},
+    ApqCiphersuite, ApqGroupId, ApqMlsGroup,
+    authentication::{ApqCredentialWithKey, ApqSigner},
     extension::{APQMLS_EXTENSION_TYPE, ApqMlsInfo, PqtMode, ensure_extension_support},
     key_package::ensure_ciphersuite_support,
 };
