@@ -3,9 +3,12 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 [package]
-name = "hpqmls"
+name = "apqmls"
+description = "Amortized Post-Quantum MLS Combiner"
+authors = ["Phoenix R&D GmbH <hello@phnx.im>"]
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-or-later"
 
 [dependencies]
 openmls = { git = "https://github.com/openmls/openmls.git", features = [

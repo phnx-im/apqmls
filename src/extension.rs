@@ -9,12 +9,12 @@ use openmls::{
 use tap::Pipe;
 use tls_codec::{Deserialize as _, Serialize as _, TlsDeserialize, TlsSerialize, TlsSize};
 
-use crate::{HpqCiphersuite, HpqGroupId, HpqMlsGroup};
+use crate::{ApqCiphersuite, ApqGroupId, ApqMlsGroup};
 
-pub const HPQMLS_EXTENSION_ID: u16 = 0xFF01;
-pub const HPQMLS_EXTENSION_TYPE: ExtensionType = ExtensionType::Unknown(HPQMLS_EXTENSION_ID);
+pub const APQMLS_EXTENSION_ID: u16 = 0xFF01;
+pub const APQMLS_EXTENSION_TYPE: ExtensionType = ExtensionType::Unknown(APQMLS_EXTENSION_ID);
 
-/// The mode of an [`HpqMlsGroup`], which determines whether only confidentiality or both
+/// The mode of an [`ApqMlsGroup`], which determines whether only confidentiality or both
 /// confidentiality and authentication is PQ secure.
 #[derive(Default, Debug, Clone, TlsSize, TlsSerialize, TlsDeserialize, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -35,18 +35,18 @@ impl From<PqtMode> for bool {
 
 impl PqtMode {
     /// Returns the default ciphersuite for the given mode.
-    pub fn default_ciphersuite(&self) -> HpqCiphersuite {
+    pub fn default_ciphersuite(&self) -> ApqCiphersuite {
         match self {
-            PqtMode::ConfOnly => HpqCiphersuite::default_pq_conf(),
-            PqtMode::ConfAndAuth => HpqCiphersuite::default_pq_conf_and_auth(),
+            PqtMode::ConfOnly => ApqCiphersuite::default_pq_conf(),
+            PqtMode::ConfAndAuth => ApqCiphersuite::default_pq_conf_and_auth(),
         }
     }
 }
 
-/// The HPQMLS extension, which is used to store HPQMLS-specific information
-/// in the extensions of an `[MlsGroup]`.
+/// The APQMLS extension, which is used to store APQMLS-specific information
+/// in the extensions of an [`openmls::group::MlsGroup`].
 #[derive(Debug, Clone, TlsSize, TlsSerialize, TlsDeserialize, PartialEq, Eq)]
-pub struct HpqMlsInfo {
+pub struct ApqMlsInfo {
     pub t_session_group_id: GroupId,
     pub pq_session_group_id: GroupId,
     pub mode: PqtMode,
@@ -56,11 +56,11 @@ pub struct HpqMlsInfo {
     pub pq_epoch: GroupEpoch,
 }
 
-impl HpqMlsInfo {
+impl ApqMlsInfo {
     pub(super) fn to_extension(&self) -> Result<Extension, tls_codec::Error> {
         self.tls_serialize_detached()?
             .pipe(UnknownExtension)
-            .pipe(|extension| Extension::Unknown(HPQMLS_EXTENSION_ID, extension))
+            .pipe(|extension| Extension::Unknown(APQMLS_EXTENSION_ID, extension))
             .pipe(Ok)
     }
 
@@ -72,18 +72,18 @@ impl HpqMlsInfo {
     pub fn from_extensions(
         extensions: &Extensions<GroupContext>,
     ) -> Result<Option<Self>, tls_codec::Error> {
-        if let Some(extension) = extensions.unknown(HPQMLS_EXTENSION_ID) {
+        if let Some(extension) = extensions.unknown(APQMLS_EXTENSION_ID) {
             extension
                 .0
-                .pipe_as_ref::<'_, [u8], _>(HpqMlsInfo::tls_deserialize_exact)
+                .pipe_as_ref::<'_, [u8], _>(ApqMlsInfo::tls_deserialize_exact)
                 .map(Some)
         } else {
             Ok(None)
         }
     }
 
-    pub fn group_id(&self) -> HpqGroupId {
-        HpqGroupId {
+    pub fn group_id(&self) -> ApqGroupId {
+        ApqGroupId {
             t_group_id: self.t_session_group_id.clone(),
             pq_group_id: self.pq_session_group_id.clone(),
         }
@@ -94,8 +94,8 @@ pub(super) fn ensure_extension_support(
     capabilities: Capabilities,
 ) -> Result<Capabilities, tls_codec::Error> {
     let mut extensions = capabilities.extensions().to_vec();
-    if !extensions.contains(&HPQMLS_EXTENSION_TYPE) {
-        extensions.push(HPQMLS_EXTENSION_TYPE);
+    if !extensions.contains(&APQMLS_EXTENSION_TYPE) {
+        extensions.push(APQMLS_EXTENSION_TYPE);
     }
     if !extensions.contains(&ExtensionType::RequiredCapabilities) {
         extensions.push(ExtensionType::RequiredCapabilities);
@@ -115,9 +115,9 @@ pub(super) fn ensure_extension_support(
     .pipe(Ok)
 }
 
-impl HpqMlsGroup {
-    /// Get the HPQMLS extension from the group, if it exists.
-    pub fn hpq_info(&self) -> Option<HpqMlsInfo> {
-        HpqMlsInfo::from_extensions(self.t_group.extensions()).ok()?
+impl ApqMlsGroup {
+    /// Get the APQMLS extension from the group, if it exists.
+    pub fn apq_info(&self) -> Option<ApqMlsInfo> {
+        ApqMlsInfo::from_extensions(self.t_group.extensions()).ok()?
     }
 }

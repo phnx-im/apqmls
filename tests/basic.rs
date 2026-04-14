@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use hpqmls::{
-    HpqMlsGroup, authentication::HpqSigner as _, extension::PqtMode, messages::HpqMlsMessageIn,
+use apqmls::{
+    ApqMlsGroup, authentication::ApqSigner, extension::PqtMode, messages::ApqMlsMessageIn,
 };
 use openmls::{
     group::{GroupId, MlsGroupJoinConfig},
@@ -25,8 +25,8 @@ fn join_group_helper(mode: PqtMode) -> JoinedGroup {
     let alice = Client::new("Alice", ciphersuite.into(), OpenMlsRustCrypto::default());
     let bob = Client::new("Bob", ciphersuite.into(), OpenMlsRustCrypto::default());
 
-    // Create a new HpqMlsGroup for Alice
-    let mut alice_group = HpqMlsGroup::builder()
+    // Create a new ApqMlsGroup for Alice
+    let mut alice_group = ApqMlsGroup::builder()
         .with_group_ids(
             GroupId::random(alice.provider.rand()),
             GroupId::from_slice(b"test_pq_group"),
@@ -55,7 +55,7 @@ fn join_group_helper(mode: PqtMode) -> JoinedGroup {
 
     // Bob joins Alice's group
     let welcome = commit_bundle.into_welcome().unwrap();
-    let mut bob_group = HpqMlsGroup::new_from_welcome(
+    let mut bob_group = ApqMlsGroup::new_from_welcome(
         &bob.provider,
         &MlsGroupJoinConfig::default(),
         welcome,
@@ -89,7 +89,7 @@ fn update_group_helper(group: JoinedGroup) -> JoinedGroup {
         .unwrap();
     alice_group.merge_pending_commit(&alice.provider).unwrap();
 
-    let message_in = HpqMlsMessageIn::try_from(alice_commit_bundle.commit).unwrap();
+    let message_in = ApqMlsMessageIn::try_from(alice_commit_bundle.commit).unwrap();
     let protocol_message = message_in.into_protocol_message().unwrap();
 
     // Bob processes Alice's update
@@ -116,8 +116,8 @@ fn update_group_helper(group: JoinedGroup) -> JoinedGroup {
 struct JoinedGroup {
     alice: Client<OpenMlsRustCrypto>,
     bob: Client<OpenMlsRustCrypto>,
-    alice_group: HpqMlsGroup,
-    bob_group: HpqMlsGroup,
+    alice_group: ApqMlsGroup,
+    bob_group: ApqMlsGroup,
 }
 
 const TEST_MODE: [PqtMode; 2] = [PqtMode::ConfAndAuth, PqtMode::ConfOnly];
@@ -214,7 +214,7 @@ fn t_only_update() {
 
         assert_groups_eq(&mut alice_group, &mut bob_group);
 
-        // Do an HPQMLS update to make sure everything still works
+        // Do an APQMLS update to make sure everything still works
         let joined_group = JoinedGroup {
             alice,
             bob,

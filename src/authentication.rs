@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! This module defines types and traits for handling authentication in HPQMLS.
+//! This module defines types and traits for handling authentication in APQMLS.
 
 use openmls::prelude::{
     BasicCredential, CredentialWithKey, CryptoError, SignaturePublicKey, SignatureScheme,
@@ -13,16 +13,16 @@ use serde::{Deserialize, Serialize};
 use tap::Pipe;
 use tls_codec::{Serialize as _, TlsDeserialize, TlsSerialize, TlsSize};
 
-use crate::HpqCiphersuite;
+use crate::ApqCiphersuite;
 
-/// The combined verifying key of a `[HpqSigner]`.
+/// The combined verifying key of a [`ApqSigner`].
 #[derive(Debug, Clone, PartialEq, Eq, TlsSize, TlsSerialize, TlsDeserialize)]
-pub struct HpqVerifyingKey {
+pub struct ApqVerifyingKey {
     pub t_verifying_key: SignaturePublicKey,
     pub pq_verifying_key: SignaturePublicKey,
 }
 
-impl HpqVerifyingKey {
+impl ApqVerifyingKey {
     pub fn to_bytes(&self) -> Vec<u8> {
         // We unwrap here, because we know that public keys are not going to be
         // too long for the TLS codec to handle.
@@ -30,15 +30,15 @@ impl HpqVerifyingKey {
     }
 }
 
-/// A combined credential with key for use in HPQMLS.
+/// A combined credential with key for use in APQMLS.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct HpqCredentialWithKey {
+pub struct ApqCredentialWithKey {
     pub t_credential: CredentialWithKey,
     pub pq_credential: CredentialWithKey,
 }
 
-impl HpqCredentialWithKey {
-    pub fn new(identity: &[u8], keypair: &HpqSignatureKeyPair) -> Self {
+impl ApqCredentialWithKey {
+    pub fn new(identity: &[u8], keypair: &ApqSignatureKeyPair) -> Self {
         let t_credential = BasicCredential::new(identity.to_vec());
         let pq_credential = BasicCredential::new(identity.to_vec());
 
@@ -55,8 +55,8 @@ impl HpqCredentialWithKey {
     }
 }
 
-/// A trait for types that can sign messages in HPQMLS.
-pub trait HpqSigner {
+/// A trait for types that can sign messages in APQMLS.
+pub trait ApqSigner {
     fn t_signer(&self) -> &SignatureKeyPair;
     fn pq_signer(&self) -> &SignatureKeyPair;
 
@@ -67,23 +67,23 @@ pub trait HpqSigner {
         self.pq_signer().public()
     }
 
-    fn verifying_key(&self) -> HpqVerifyingKey {
-        HpqVerifyingKey {
+    fn verifying_key(&self) -> ApqVerifyingKey {
+        ApqVerifyingKey {
             t_verifying_key: self.t_verifying_key().into(),
             pq_verifying_key: self.pq_verifying_key().into(),
         }
     }
 }
 
-/// The signature scheme of a `[HpqSigner]`.
+/// The signature scheme of a [`ApqSigner`].
 #[derive(Debug, Clone, Copy)]
-pub struct HpqSignatureScheme {
+pub struct ApqSignatureScheme {
     pub t_signature_scheme: SignatureScheme,
     pub pq_signature_scheme: SignatureScheme,
 }
 
-impl From<HpqCiphersuite> for HpqSignatureScheme {
-    fn from(ciphersuite: HpqCiphersuite) -> Self {
+impl From<ApqCiphersuite> for ApqSignatureScheme {
+    fn from(ciphersuite: ApqCiphersuite) -> Self {
         Self {
             t_signature_scheme: ciphersuite.t_ciphersuite.signature_algorithm(),
             pq_signature_scheme: ciphersuite.pq_ciphersuite.signature_algorithm(),
@@ -91,15 +91,15 @@ impl From<HpqCiphersuite> for HpqSignatureScheme {
     }
 }
 
-/// A combined signature key pair for use in HPQMLS.
+/// A combined signature key pair for use in APQMLS.
 #[derive(Debug, Clone, TlsSize, TlsSerialize, TlsDeserialize, Serialize, Deserialize)]
-pub struct HpqSignatureKeyPair {
+pub struct ApqSignatureKeyPair {
     t_signer: SignatureKeyPair,
     pq_signer: SignatureKeyPair,
 }
 
-impl HpqSignatureKeyPair {
-    pub fn new(signature_scheme: HpqSignatureScheme) -> Result<Self, CryptoError> {
+impl ApqSignatureKeyPair {
+    pub fn new(signature_scheme: ApqSignatureScheme) -> Result<Self, CryptoError> {
         let t_signer = SignatureKeyPair::new(signature_scheme.t_signature_scheme)?;
         let pq_signer = SignatureKeyPair::new(signature_scheme.pq_signature_scheme)?;
         Self {
@@ -109,8 +109,8 @@ impl HpqSignatureKeyPair {
         .pipe(Ok)
     }
 
-    pub fn id(&self) -> HpqStorageId {
-        HpqStorageId {
+    pub fn id(&self) -> ApqStorageId {
+        ApqStorageId {
             t_signature_scheme: self.t_signer().signature_scheme(),
             t_verifying_key: self.t_verifying_key().to_vec(),
             pq_signature_scheme: self.pq_signer().signature_scheme(),
@@ -119,7 +119,7 @@ impl HpqSignatureKeyPair {
     }
 }
 
-impl HpqSigner for HpqSignatureKeyPair {
+impl ApqSigner for ApqSignatureKeyPair {
     fn t_signer(&self) -> &SignatureKeyPair {
         &self.t_signer
     }
@@ -129,9 +129,9 @@ impl HpqSigner for HpqSignatureKeyPair {
     }
 }
 
-/// The storage ID for a `[HpqSignatureKeyPair]`.
+/// The storage ID for a [`ApqSignatureKeyPair`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HpqStorageId {
+pub struct ApqStorageId {
     t_signature_scheme: SignatureScheme,
     t_verifying_key: Vec<u8>,
     pq_signature_scheme: SignatureScheme,
@@ -139,9 +139,9 @@ pub struct HpqStorageId {
 }
 
 // Implement key traits for the storage id
-impl storage::Key<CURRENT_VERSION> for HpqStorageId {}
-impl storage::traits::SignaturePublicKey<CURRENT_VERSION> for HpqStorageId {}
+impl storage::Key<CURRENT_VERSION> for ApqStorageId {}
+impl storage::traits::SignaturePublicKey<CURRENT_VERSION> for ApqStorageId {}
 
 // Implement entity trait for the signature key pair
-impl storage::Entity<CURRENT_VERSION> for HpqSignatureKeyPair {}
-impl storage::traits::SignatureKeyPair<CURRENT_VERSION> for HpqSignatureKeyPair {}
+impl storage::Entity<CURRENT_VERSION> for ApqSignatureKeyPair {}
+impl storage::traits::SignatureKeyPair<CURRENT_VERSION> for ApqSignatureKeyPair {}

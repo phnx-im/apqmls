@@ -7,9 +7,9 @@ use openmls::{
     storage::{OpenMlsProvider, StorageProvider},
 };
 
-use crate::{HpqMlsGroup, processing::HpqStagedCommit};
+use crate::{ApqMlsGroup, processing::ApqStagedCommit};
 
-impl HpqMlsGroup {
+impl ApqMlsGroup {
     /// Merges the pending [`openmls::group::StagedCommit`] of the traditional group, as well as
     /// that of the PQ group if there is one.
     pub fn merge_pending_commit<Provider: OpenMlsProvider>(
@@ -26,9 +26,9 @@ impl HpqMlsGroup {
     pub fn merge_staged_commit<Provider: OpenMlsProvider>(
         &mut self,
         provider: &Provider,
-        staged_commit: HpqStagedCommit,
+        staged_commit: ApqStagedCommit,
     ) -> Result<(), MergeCommitError<Provider::StorageError>> {
-        let HpqStagedCommit {
+        let ApqStagedCommit {
             t_staged_commit,
             pq_staged_commit,
         } = staged_commit;
