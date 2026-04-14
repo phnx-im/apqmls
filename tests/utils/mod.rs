@@ -2,11 +2,11 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use hpqmls::HpqMlsGroup;
+use apqmls::ApqMlsGroup;
 
 pub mod client;
 
-pub fn assert_groups_eq(group1: &mut HpqMlsGroup, group2: &mut HpqMlsGroup) {
+pub fn assert_groups_eq(group1: &mut ApqMlsGroup, group2: &mut ApqMlsGroup) {
     let t_group_1_authenticator = group1.t_group.epoch_authenticator();
     let t_group_2_authenticator = group2.t_group.epoch_authenticator();
     assert_eq!(

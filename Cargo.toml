@@ -3,18 +3,24 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 [package]
-name = "hpqmls"
+name = "apqmls"
+description = "Amortized Post-Quantum MLS Combiner"
+authors = ["Phoenix R&D GmbH <hello@phnx.im>"]
 version = "0.1.0"
 edition = "2024"
+license = "AGPL-3.0-or-later"
 
 [dependencies]
-openmls = { git = "https://github.com/openmls/openmls.git", branch = "konrad/hpqmls_dep_branch", features = [
+openmls = { git = "https://github.com/openmls/openmls.git", features = [
     "extensions-draft-08",
 ] }
-openmls_basic_credential = { git = "https://github.com/openmls/openmls.git", branch = "konrad/hpqmls_dep_branch", features = [
+openmls_basic_credential = { git = "https://github.com/openmls/openmls.git", features = [
     "clonable",
 ] }
-openmls_traits = { git = "https://github.com/openmls/openmls.git", branch = "konrad/hpqmls_dep_branch", features = [
+openmls_traits = { git = "https://github.com/openmls/openmls.git", features = [
+    "extensions-draft-08",
+] }
+openmls_memory_storage = { git = "https://github.com/openmls/openmls.git", features = [
     "extensions-draft-08",
 ] }
 serde = "1.0.219"
@@ -23,4 +29,25 @@ thiserror = "2.0.12"
 tls_codec = "0.4.2"
 
 [dev-dependencies]
-openmls_rust_crypto = { git = "https://github.com/openmls/openmls.git", branch = "konrad/hpqmls_dep_branch" }
+openmls_rust_crypto = { git = "https://github.com/openmls/openmls.git" }
+
+[patch."https://github.com/openmls/openmls.git"]
+# feat: Post-Quantum Cryptography support (ML-KEM + ML-DSA)
+# <https://github.com/openmls/openmls/pull/1994>
+openmls = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
+openmls_basic_credential = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
+openmls_rust_crypto = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
+openmls_traits = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
+openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
+
+[patch.crates-io]
+# feat: add p384 support
+# <https://github.com/cryspen/hpke-rs/pull/150>
+hpke-rs = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
+hpke-rs-crypto = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
+hpke-rs-rust-crypto = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
+
+[package.metadata.cargo-machete]
+ignored = [
+    "openmls_memory_storage", # include to enable the `extensions-draft-08` feature
+]

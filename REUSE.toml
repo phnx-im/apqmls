@@ -1,5 +1,5 @@
 version = 1
-SPDX-PackageName = "HPQMLS"
+SPDX-PackageName = "APQMLS"
 SPDX-PackageSupplier = "Phoenix R&D GmbH <hello@phnx.im>"
 SPDX-PackageDownloadLocation = "https://github.com/phnx-im/infra"
 

@@ -4,12 +4,12 @@
 
 use openmls::{
     group::{
-        GroupEpoch, GroupId, MlsGroupBuilder, NewGroupError as OpenMlsNewGroupError,
+        GroupContext, GroupEpoch, GroupId, MlsGroupBuilder, NewGroupError as OpenMlsNewGroupError,
         WireFormatPolicy,
     },
     prelude::{
-        Capabilities, Extension, ExtensionType, Extensions, InvalidExtensionError, Lifetime,
-        RequiredCapabilitiesExtension, SenderRatchetConfiguration,
+        Capabilities, Extension, ExtensionType, Extensions, InvalidExtensionError, LeafNode,
+        Lifetime, RequiredCapabilitiesExtension, SenderRatchetConfiguration,
     },
     storage::OpenMlsProvider,
     treesync::errors::LeafNodeValidationError,
@@ -18,18 +18,18 @@ use tap::Pipe as _;
 use thiserror::Error;
 
 use crate::{
-    HpqCiphersuite, HpqGroupId, HpqMlsGroup,
-    authentication::{HpqCredentialWithKey, HpqSigner},
-    extension::{HPQMLS_EXTENSION_TYPE, HpqMlsInfo, PqtMode, ensure_extension_support},
+    ApqCiphersuite, ApqGroupId, ApqMlsGroup,
+    authentication::{ApqCredentialWithKey, ApqSigner},
+    extension::{APQMLS_EXTENSION_TYPE, ApqMlsInfo, PqtMode, ensure_extension_support},
     key_package::ensure_ciphersuite_support,
 };
 
-/// Errors that can occur when creating a new [`HpqMlsGroup`].
+/// Errors that can occur when creating a new [`ApqMlsGroup`].
 #[derive(Error, Debug)]
 pub enum NewGroupError<StorageError> {
     #[error(transparent)]
     NewGroup(#[from] OpenMlsNewGroupError<StorageError>),
-    #[error("Error serializing HPQInfo extension: {0}")]
+    #[error("Error serializing APQInfo extension: {0}")]
     InvalidExtension(#[from] tls_codec::Error),
 }
 
@@ -39,18 +39,18 @@ impl<StorageError> From<InvalidExtensionError> for NewGroupError<StorageError> {
     }
 }
 
-/// A builder for creating a new [`HpqMlsGroup`].
+/// A builder for creating a new [`ApqMlsGroup`].
 #[derive(Debug, Default)]
 pub struct GroupBuilder {
     t_group_builder: MlsGroupBuilder,
     pq_group_builder: MlsGroupBuilder,
     // We keep track of the values below so we can do some post-processing
     // later.
-    group_ids: Option<HpqGroupId>,
+    group_ids: Option<ApqGroupId>,
     mode: PqtMode,
     capabilities: Capabilities,
-    t_extensions: Extensions,
-    pq_extensions: Extensions,
+    t_extensions: Extensions<GroupContext>,
+    pq_extensions: Extensions<GroupContext>,
 }
 
 impl GroupBuilder {
@@ -58,17 +58,17 @@ impl GroupBuilder {
         Self::default()
     }
 
-    /// Sets the [`PqtMode`] mode of the [`HpqMlsGroup`].
+    /// Sets the [`PqtMode`] mode of the [`ApqMlsGroup`].
     pub fn set_mode(mut self, mode: PqtMode) -> Self {
         self.mode = mode;
         self
     }
 
-    /// Sets the group ID of the [`HpqMlsGroup`].
+    /// Sets the group ID of the [`ApqMlsGroup`].
     pub fn with_group_ids(mut self, t_group_id: GroupId, pq_group_id: GroupId) -> Self {
         self.t_group_builder = self.t_group_builder.with_group_id(t_group_id.clone());
         self.pq_group_builder = self.pq_group_builder.with_group_id(pq_group_id.clone());
-        self.group_ids = Some(HpqGroupId {
+        self.group_ids = Some(ApqGroupId {
             t_group_id,
             pq_group_id,
         });
@@ -79,12 +79,12 @@ impl GroupBuilder {
     pub fn build<Provider: OpenMlsProvider>(
         mut self,
         provider: &Provider,
-        signer: &impl HpqSigner,
-        credential_with_key: HpqCredentialWithKey,
-    ) -> Result<HpqMlsGroup, NewGroupError<Provider::StorageError>> {
+        signer: &impl ApqSigner,
+        credential_with_key: ApqCredentialWithKey,
+    ) -> Result<ApqMlsGroup, NewGroupError<Provider::StorageError>> {
         let ciphersuite = match self.mode {
-            PqtMode::ConfOnly => HpqCiphersuite::default_pq_conf(),
-            PqtMode::ConfAndAuth => HpqCiphersuite::default_pq_conf_and_auth(),
+            PqtMode::ConfOnly => ApqCiphersuite::default_pq_conf(),
+            PqtMode::ConfAndAuth => ApqCiphersuite::default_pq_conf_and_auth(),
         };
 
         // Add extension to capabilities.
@@ -94,24 +94,24 @@ impl GroupBuilder {
             .pipe(|c| ensure_ciphersuite_support(c, ciphersuite))?;
 
         // Add extension to extensions
-        let hpq_group_id = self
+        let apq_group_id = self
             .group_ids
-            .unwrap_or_else(|| HpqGroupId::random(provider.rand()));
+            .unwrap_or_else(|| ApqGroupId::random(provider.rand()));
 
         // Add required capabilities extension
         let rc_extension = RequiredCapabilitiesExtension::new(
-            &[HPQMLS_EXTENSION_TYPE, ExtensionType::RequiredCapabilities],
+            &[APQMLS_EXTENSION_TYPE, ExtensionType::RequiredCapabilities],
             &[],
             &[],
         )
         .pipe(Extension::RequiredCapabilities);
 
-        self.t_extensions.add_or_replace(rc_extension.clone());
-        self.pq_extensions.add_or_replace(rc_extension);
+        self.t_extensions.add_or_replace(rc_extension.clone())?;
+        self.pq_extensions.add_or_replace(rc_extension)?;
 
-        let hpq_mls_extension = HpqMlsInfo {
-            t_session_group_id: hpq_group_id.t_group_id.clone(),
-            pq_session_group_id: hpq_group_id.pq_group_id.clone(),
+        let apq_mls_extension = ApqMlsInfo {
+            t_session_group_id: apq_group_id.t_group_id.clone(),
+            pq_session_group_id: apq_group_id.pq_group_id.clone(),
             mode: self.mode,
             t_cipher_suite: ciphersuite.t_ciphersuite,
             pq_cipher_suite: ciphersuite.pq_ciphersuite,
@@ -120,14 +120,15 @@ impl GroupBuilder {
         }
         .to_extension()?;
 
-        self.t_extensions.add_or_replace(hpq_mls_extension.clone());
-        self.pq_extensions.add_or_replace(hpq_mls_extension);
+        self.t_extensions
+            .add_or_replace(apq_mls_extension.clone())?;
+        self.pq_extensions.add_or_replace(apq_mls_extension)?;
 
         let t_group = self
             .t_group_builder
             .ciphersuite(ciphersuite.t_ciphersuite)
-            .with_group_context_extensions(self.t_extensions)?
-            .with_group_id(hpq_group_id.t_group_id.clone())
+            .with_group_context_extensions(self.t_extensions)
+            .with_group_id(apq_group_id.t_group_id.clone())
             .with_capabilities(capabilities.clone())
             .build(
                 provider,
@@ -137,8 +138,8 @@ impl GroupBuilder {
         let pq_group = self
             .pq_group_builder
             .ciphersuite(ciphersuite.pq_ciphersuite)
-            .with_group_context_extensions(self.pq_extensions)?
-            .with_group_id(hpq_group_id.pq_group_id.clone())
+            .with_group_context_extensions(self.pq_extensions)
+            .with_group_id(apq_group_id.pq_group_id.clone())
             .with_capabilities(capabilities)
             .build(
                 provider,
@@ -146,12 +147,12 @@ impl GroupBuilder {
                 credential_with_key.pq_credential,
             )?;
 
-        Ok(HpqMlsGroup { pq_group, t_group })
+        Ok(ApqMlsGroup { pq_group, t_group })
     }
 
     // Builder options
 
-    /// Sets the `wire_format` property of the HpqMlsGroup.
+    /// Sets the `wire_format` property of the ApqMlsGroup.
     pub fn with_wire_format_policy(mut self, wire_format_policy: WireFormatPolicy) -> Self {
         self.t_group_builder = self
             .t_group_builder
@@ -162,7 +163,7 @@ impl GroupBuilder {
         self
     }
 
-    /// Sets the `padding_size` property of the HpqMlsGroup.
+    /// Sets the `padding_size` property of the ApqMlsGroup.
     pub fn padding_size(mut self, padding_size: usize) -> Self {
         self.t_group_builder = self.t_group_builder.padding_size(padding_size);
         self.pq_group_builder = self.pq_group_builder.padding_size(padding_size);
@@ -185,7 +186,7 @@ impl GroupBuilder {
         self
     }
 
-    /// Sets the `number_of_resumption_psks` property of the HpqMlsGroup.
+    /// Sets the `number_of_resumption_psks` property of the ApqMlsGroup.
     pub fn number_of_resumption_psks(mut self, number_of_resumption_psks: usize) -> Self {
         self.t_group_builder = self
             .t_group_builder
@@ -231,8 +232,8 @@ impl GroupBuilder {
     /// Sets the initial group context extensions
     pub fn with_group_context_extensions(
         mut self,
-        t_extensions: Extensions,
-        pq_extensions: Extensions,
+        t_extensions: Extensions<GroupContext>,
+        pq_extensions: Extensions<GroupContext>,
     ) -> Result<Self, InvalidExtensionError> {
         self.t_extensions = t_extensions;
         self.pq_extensions = pq_extensions;
@@ -243,8 +244,8 @@ impl GroupBuilder {
     /// Sets the initial leaf node extensions
     pub fn with_leaf_node_extensions(
         mut self,
-        t_extensions: Extensions,
-        pq_extensions: Extensions,
+        t_extensions: Extensions<LeafNode>,
+        pq_extensions: Extensions<LeafNode>,
     ) -> Result<Self, LeafNodeValidationError> {
         self.t_group_builder = self
             .t_group_builder

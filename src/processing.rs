@@ -18,28 +18,28 @@ use thiserror::Error;
 use tls_codec::Serialize;
 
 use crate::{
-    HpqMlsGroup,
-    extension::{HPQMLS_EXTENSION_ID, HpqMlsInfo},
-    messages::HpqProtocolMessage,
-    psk::{HpqPskError, HpqPskId, store_psk},
+    ApqMlsGroup,
+    extension::{APQMLS_EXTENSION_ID, ApqMlsInfo},
+    messages::ApqProtocolMessage,
+    psk::{ApqPskError, ApqPskId, store_psk},
 };
 
 /// A bundle consisting of the processed messages of both the traditional and
 /// the PQ group.
-pub struct HpqProcessedMessage {
+pub struct ApqProcessedMessage {
     pub t_message: ProcessedMessage,
     pub pq_message: ProcessedMessage,
 }
 
 /// A bundle consisting of the staged commits of both the traditional and the
 /// PQ group.
-pub struct HpqStagedCommit {
+pub struct ApqStagedCommit {
     pub t_staged_commit: StagedCommit,
     pub pq_staged_commit: StagedCommit,
 }
 
-impl HpqProcessedMessage {
-    pub fn into_staged_commit(self) -> Option<HpqStagedCommit> {
+impl ApqProcessedMessage {
+    pub fn into_staged_commit(self) -> Option<ApqStagedCommit> {
         let t_staged_commit = match self.t_message.into_content() {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
             _ => return None,
@@ -48,28 +48,28 @@ impl HpqProcessedMessage {
             ProcessedMessageContent::StagedCommitMessage(staged_commit) => *staged_commit,
             _ => return None,
         };
-        Some(HpqStagedCommit {
+        Some(ApqStagedCommit {
             t_staged_commit,
             pq_staged_commit,
         })
     }
 }
 
-/// Errors that can occur when processing a message with an [`HpqMlsGroup`].
+/// Errors that can occur when processing a message with an [`ApqMlsGroup`].
 #[derive(Debug, Error)]
-pub enum HpqProcessMessageError<StorageError> {
+pub enum ApqProcessMessageError<StorageError> {
     #[error("Failed to process message: {0}")]
     Processing(#[from] ProcessMessageError<StorageError>),
     #[error(transparent)]
-    Psk(#[from] HpqPskError<StorageError>),
+    Psk(#[from] ApqPskError<StorageError>),
     #[error("The message type is invalid for processing.")]
     InvalidMessageType,
     #[error("The MLS messages don't match.")]
     MismatchedMessages,
-    #[error("HPQMLSInfo extension is missing or invalid in commit message.")]
-    MissingHpqMlsInfo,
-    #[error("HPQMLSInfo extension content is invalid.")]
-    InvalidHpqMlsInfo,
+    #[error("APQMLSInfo extension is missing or invalid in commit message.")]
+    MissingApqMlsInfo,
+    #[error("APQMLSInfo extension content is invalid.")]
+    InvalidApqMlsInfo,
 }
 
 #[derive(Eq)]
@@ -256,7 +256,7 @@ impl<F: Fn(&Credential, &Credential) -> bool> PartialEq for MessageInfo<F> {
     }
 }
 
-impl HpqMlsGroup {
+impl ApqMlsGroup {
     /// Parses incoming messages from the DS. Checks for syntactic errors and
     /// makes some semantic checks as well. If the input is an encrypted
     /// message, it will be decrypted. This processing function does syntactic
@@ -269,20 +269,20 @@ impl HpqMlsGroup {
     pub fn process_message<F, Provider: OpenMlsProvider>(
         &mut self,
         provider: &Provider,
-        message: impl Into<HpqProtocolMessage>,
+        message: impl Into<ApqProtocolMessage>,
         sender_equivalence: F,
-    ) -> Result<HpqProcessedMessage, HpqProcessMessageError<Provider::StorageError>>
+    ) -> Result<ApqProcessedMessage, ApqProcessMessageError<Provider::StorageError>>
     where
         F: Fn(&Credential, &Credential) -> bool,
     {
-        let protocol_message: HpqProtocolMessage = message.into();
+        let protocol_message: ApqProtocolMessage = message.into();
         // We only export a PSK if we process a PQ message
         let mut pq_message = self
             .pq_group
             .process_message(provider, protocol_message.pq_protocol_message)?;
 
         let msg_type = MessageType::new(pq_message.content(), &sender_equivalence)
-            .ok_or(HpqProcessMessageError::InvalidMessageType)?;
+            .ok_or(ApqProcessMessageError::InvalidMessageType)?;
         let pq_message_info = MessageInfo {
             msg_type,
             sender: pq_message.sender().clone(),
@@ -294,20 +294,20 @@ impl HpqMlsGroup {
             ProcessedMessageContent::StagedCommitMessage(_)
         ) {
             let psk_value = pq_message
-                .safe_export_secret(provider.crypto(), HPQMLS_EXTENSION_ID)
-                .map_err(HpqPskError::ExportFromProcessed)?;
+                .safe_export_secret(provider.crypto(), APQMLS_EXTENSION_ID)
+                .map_err(ApqPskError::ExportFromProcessed)?;
 
             let next_epoch = self.pq_group.epoch().as_u64() + 1;
-            HpqPskId {
+            ApqPskId {
                 group_id: self.pq_group.group_id().clone(),
                 epoch: next_epoch,
             }
             .tls_serialize_detached()
-            .map_err(HpqPskError::SerializingPskId)?
+            .map_err(ApqPskError::SerializingPskId)?
             .pipe(ExternalPsk::new)
             .pipe(Psk::External)
             .pipe(|psk| PreSharedKeyId::new(self.t_group.ciphersuite(), provider.rand(), psk))
-            .map_err(HpqPskError::DerivingPskId)?
+            .map_err(ApqPskError::DerivingPskId)?
             .pipe(|id| store_psk(provider, id, &psk_value))?;
         }
 
@@ -316,7 +316,7 @@ impl HpqMlsGroup {
             .process_message(provider, protocol_message.t_protocol_message)?;
 
         let msg_type = MessageType::new(t_message.content(), &sender_equivalence)
-            .ok_or(HpqProcessMessageError::InvalidMessageType)?;
+            .ok_or(ApqProcessMessageError::InvalidMessageType)?;
         let t_message_info = MessageInfo {
             msg_type,
             sender: t_message.sender().clone(),
@@ -324,23 +324,23 @@ impl HpqMlsGroup {
 
         // Make sure that messages match up
         if pq_message_info != t_message_info {
-            return Err(HpqProcessMessageError::MismatchedMessages);
+            return Err(ApqProcessMessageError::MismatchedMessages);
         }
 
-        // If both are commits, the HPQMLSInfo extension must be updated and in
+        // If both are commits, the APQMLSInfo extension must be updated and in
         // line with the info of both groups
         if let ProcessedMessageContent::StagedCommitMessage(pq_staged_commit) = pq_message.content()
             && let ProcessedMessageContent::StagedCommitMessage(t_staged_commit) =
                 t_message.content()
         {
             let pq_extension =
-                HpqMlsInfo::from_extensions(pq_staged_commit.group_context().extensions())
-                    .map_err(|_| HpqProcessMessageError::MissingHpqMlsInfo)?
-                    .ok_or(HpqProcessMessageError::MissingHpqMlsInfo)?;
+                ApqMlsInfo::from_extensions(pq_staged_commit.group_context().extensions())
+                    .map_err(|_| ApqProcessMessageError::MissingApqMlsInfo)?
+                    .ok_or(ApqProcessMessageError::MissingApqMlsInfo)?;
             let t_extension =
-                HpqMlsInfo::from_extensions(t_staged_commit.group_context().extensions())
-                    .map_err(|_| HpqProcessMessageError::MissingHpqMlsInfo)?
-                    .ok_or(HpqProcessMessageError::MissingHpqMlsInfo)?;
+                ApqMlsInfo::from_extensions(t_staged_commit.group_context().extensions())
+                    .map_err(|_| ApqProcessMessageError::MissingApqMlsInfo)?
+                    .ok_or(ApqProcessMessageError::MissingApqMlsInfo)?;
 
             // Extension contents must match
             let extensions_match = pq_extension == t_extension;
@@ -373,11 +373,11 @@ impl HpqMlsGroup {
                 || !ciphersuites_match
                 || !ciphersuite_matches_mode
             {
-                return Err(HpqProcessMessageError::InvalidHpqMlsInfo);
+                return Err(ApqProcessMessageError::InvalidApqMlsInfo);
             }
         }
 
-        Ok(HpqProcessedMessage {
+        Ok(ApqProcessedMessage {
             t_message,
             pq_message,
         })

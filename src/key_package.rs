@@ -6,8 +6,8 @@ use std::collections::HashSet;
 
 use openmls::{
     prelude::{
-        Capabilities, Ciphersuite, Extensions, KeyPackageBuilder, KeyPackageBundle,
-        KeyPackageNewError as OpenMlsKeyPackageNewError, KeyPackageVerifyError, Lifetime,
+        Capabilities, Ciphersuite, Extensions, KeyPackage, KeyPackageBuilder, KeyPackageBundle,
+        KeyPackageNewError as OpenMlsKeyPackageNewError, KeyPackageVerifyError, LeafNode, Lifetime,
         OpenMlsCrypto, ProtocolVersion,
     },
     storage::OpenMlsProvider,
@@ -17,13 +17,13 @@ use tap::Pipe as _;
 use thiserror::Error;
 
 use crate::{
-    HpqCiphersuite,
-    authentication::{HpqCredentialWithKey, HpqSigner},
+    ApqCiphersuite,
+    authentication::{ApqCredentialWithKey, ApqSigner},
     extension::ensure_extension_support,
-    messages::{HpqKeyPackage, HpqKeyPackageIn},
+    messages::{ApqKeyPackage, ApqKeyPackageIn},
 };
 
-/// Errors that can occur when creating a new [`HpqKeyPackage`].
+/// Errors that can occur when creating a new [`ApqKeyPackage`].
 #[derive(Error, Debug)]
 pub enum KeyPackageNewError {
     #[error(transparent)]
@@ -32,37 +32,37 @@ pub enum KeyPackageNewError {
     UnsupportedCiphersuite(#[from] tls_codec::Error),
 }
 
-/// A builder for creating a new [`HpqKeyPackage`].
-pub struct HpqKeyPackageBuilder {
+/// A builder for creating a new [`ApqKeyPackage`].
+pub struct ApqKeyPackageBuilder {
     capabilities: Capabilities,
     t_kp_builder: KeyPackageBuilder,
     pq_kp_builder: KeyPackageBuilder,
 }
 
-/// A bundle consisting of an [`HpqKeyPackage`] and its corresponding
+/// A bundle consisting of an [`ApqKeyPackage`] and its corresponding
 /// private keys.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HpqKeyPackageBundle {
+pub struct ApqKeyPackageBundle {
     t_kp_bundle: KeyPackageBundle,
     pq_kp_bundle: KeyPackageBundle,
 }
 
-impl HpqKeyPackageBundle {
-    pub fn into_key_package(self) -> HpqKeyPackage {
-        HpqKeyPackage {
+impl ApqKeyPackageBundle {
+    pub fn into_key_package(self) -> ApqKeyPackage {
+        ApqKeyPackage {
             t_key_package: self.t_kp_bundle.key_package().clone(),
             pq_key_package: self.pq_kp_bundle.key_package().clone(),
         }
     }
 }
 
-impl Default for HpqKeyPackageBuilder {
+impl Default for ApqKeyPackageBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl HpqKeyPackageBuilder {
+impl ApqKeyPackageBuilder {
     /// Create a key package builder.
     pub fn new() -> Self {
         Self {
@@ -80,7 +80,7 @@ impl HpqKeyPackageBuilder {
     }
 
     /// Set the key package extensions.
-    pub fn key_package_extensions(mut self, extensions: Extensions) -> Self {
+    pub fn key_package_extensions(mut self, extensions: Extensions<KeyPackage>) -> Self {
         self.t_kp_builder = self.t_kp_builder.key_package_extensions(extensions.clone());
         self.pq_kp_builder = self.pq_kp_builder.key_package_extensions(extensions);
         self
@@ -102,7 +102,7 @@ impl HpqKeyPackageBuilder {
     }
 
     /// Set the leaf node extensions.
-    pub fn leaf_node_extensions(mut self, extensions: Extensions) -> Self {
+    pub fn leaf_node_extensions(mut self, extensions: Extensions<LeafNode>) -> Self {
         self.t_kp_builder = self.t_kp_builder.leaf_node_extensions(extensions.clone());
         self.pq_kp_builder = self.pq_kp_builder.leaf_node_extensions(extensions);
         self
@@ -112,10 +112,10 @@ impl HpqKeyPackageBuilder {
     pub fn build(
         mut self,
         provider: &impl OpenMlsProvider,
-        ciphersuite: HpqCiphersuite,
-        signer: &impl HpqSigner,
-        credential_with_key: HpqCredentialWithKey,
-    ) -> Result<HpqKeyPackageBundle, KeyPackageNewError> {
+        ciphersuite: ApqCiphersuite,
+        signer: &impl ApqSigner,
+        credential_with_key: ApqCredentialWithKey,
+    ) -> Result<ApqKeyPackageBundle, KeyPackageNewError> {
         let capabilities = self
             .capabilities
             .pipe(ensure_extension_support)?
@@ -137,28 +137,28 @@ impl HpqKeyPackageBuilder {
             signer.pq_signer(),
             credential_with_key.pq_credential,
         )?;
-        Ok(HpqKeyPackageBundle {
+        Ok(ApqKeyPackageBundle {
             t_kp_bundle,
             pq_kp_bundle,
         })
     }
 }
 
-impl HpqKeyPackage {
-    pub fn builder() -> HpqKeyPackageBuilder {
-        HpqKeyPackageBuilder::new()
+impl ApqKeyPackage {
+    pub fn builder() -> ApqKeyPackageBuilder {
+        ApqKeyPackageBuilder::new()
     }
 }
 
-impl HpqKeyPackageIn {
+impl ApqKeyPackageIn {
     pub fn validate(
         self,
         crypto: &impl OpenMlsCrypto,
-    ) -> Result<HpqKeyPackage, KeyPackageVerifyError> {
+    ) -> Result<ApqKeyPackage, KeyPackageVerifyError> {
         let protocol_version = ProtocolVersion::default();
         let t_key_package = self.t_key_package.validate(crypto, protocol_version)?;
         let pq_key_package = self.pq_key_package.validate(crypto, protocol_version)?;
-        Ok(HpqKeyPackage {
+        Ok(ApqKeyPackage {
             t_key_package,
             pq_key_package,
         })
@@ -167,7 +167,7 @@ impl HpqKeyPackageIn {
 
 pub(super) fn ensure_ciphersuite_support(
     capabilities: Capabilities,
-    ciphersuite: HpqCiphersuite,
+    ciphersuite: ApqCiphersuite,
 ) -> Result<Capabilities, tls_codec::Error> {
     let mut ciphersuites: HashSet<Ciphersuite> = capabilities
         .ciphersuites()
