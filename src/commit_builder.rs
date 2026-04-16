@@ -8,8 +8,8 @@ use openmls::{
         CreateCommitError as OpenMlsCreateCommitError, GroupEpoch, Initial, QueuedProposal,
     },
     prelude::{
-        InvalidExtensionError, LeafNodeIndex, LeafNodeParameters, PreSharedKeyProposal, Proposal,
-        ProposalType,
+        AppDataUpdateProposal, InvalidExtensionError, LeafNodeIndex, LeafNodeParameters,
+        PreSharedKeyProposal, Proposal, ProposalType,
     },
     storage::OpenMlsProvider,
 };
@@ -19,6 +19,7 @@ use thiserror::Error;
 use crate::{
     ApqMlsGroup,
     authentication::ApqSigner,
+    extension::APQMLS_COMPONENT_ID,
     messages::{ApqGroupInfo, ApqKeyPackage, ApqMlsMessageOut, ApqWelcome},
     psk::{ApqPskError, derive_and_store_psk},
 };
@@ -241,28 +242,36 @@ impl<'a> CommitBuilder<'a> {
         t_f: impl FnMut(&QueuedProposal) -> bool,
         pq_f: impl FnMut(&QueuedProposal) -> bool,
     ) -> Result<ApqCommitMessageBundle, CreateCommitError<Provider::StorageError>> {
-        let mut current_apq_info = self
+        let mut apq_info = self
             .group
             .apq_info()
             .ok_or_else(|| CreateCommitError::MissingApqInfo)?;
         let new_t_epoch = self.group.t_group.epoch().as_u64() + 1;
         let new_pq_epoch = self.group.pq_group.epoch().as_u64() + 1;
-        current_apq_info.set_epoch(
+        apq_info.set_epoch(
             GroupEpoch::from(new_t_epoch),
             GroupEpoch::from(new_pq_epoch),
         );
 
-        let mut current_extensions = self.group.t_group.extensions().clone();
-        current_extensions.add_or_replace(current_apq_info.to_extension()?)?;
+        let apq_info_component_data = apq_info.to_component_data()?;
+        let app_data_update_proposal =
+            AppDataUpdateProposal::update(APQMLS_COMPONENT_ID, apq_info_component_data.data());
 
         // Create the PQ commit first s.t. we can export the PSK for the T group.
-        let pq_result = self
+        let mut pq_builder = self
             .group
             .pq_group
             .commit_builder()
             .pipe(|b| self.values.apply::<false>(b))
-            .propose_group_context_extensions(current_extensions.clone())?
-            .load_psks(provider.storage())?
+            .add_proposal(Proposal::AppDataUpdate(Box::new(
+                app_data_update_proposal.clone(),
+            )))
+            .load_psks(provider.storage())?;
+        let mut updater = pq_builder.app_data_dictionary_updater();
+        updater.set(apq_info_component_data.clone());
+        let changes = updater.changes();
+        pq_builder.with_app_data_dictionary_updates(changes);
+        let pq_result = pq_builder
             .build(provider.rand(), provider.crypto(), signer.pq_signer(), pq_f)?
             .stage_commit(provider)?;
 
@@ -276,14 +285,19 @@ impl<'a> CommitBuilder<'a> {
         .pipe(Box::new)
         .pipe(Proposal::PreSharedKey);
 
-        let t_result = self
+        let mut t_builder = self
             .group
             .t_group
             .commit_builder()
             .pipe(|b| self.values.apply::<true>(b))
             .add_proposal(psk_proposal)
-            .propose_group_context_extensions(current_extensions)?
-            .load_psks(provider.storage())?
+            .add_proposal(Proposal::AppDataUpdate(Box::new(app_data_update_proposal)))
+            .load_psks(provider.storage())?;
+        let mut updater = t_builder.app_data_dictionary_updater();
+        updater.set(apq_info_component_data);
+        let changes = updater.changes();
+        t_builder.with_app_data_dictionary_updates(changes);
+        let t_result = t_builder
             .build(provider.rand(), provider.crypto(), signer.t_signer(), t_f)?
             .stage_commit(provider)?;
         Ok(ApqCommitMessageBundle::from_bundles(t_result, pq_result))

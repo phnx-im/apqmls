@@ -7,19 +7,17 @@
 
 use openmls::{
     group::{
-        GroupId, MlsGroup, PendingSafeExportSecretError, ProcessedMessageSafeExportSecretError,
+        MlsGroup, PendingSafeExportSecretError, ProcessedMessageSafeExportSecretError,
         SafeExportSecretError,
     },
     prelude::{Ciphersuite, CryptoError},
-    schedule::{ExternalPsk, PreSharedKeyId, Psk, errors::PskError},
+    schedule::{PreSharedKeyId, Psk, errors::PskError, psk::ApplicationPsk},
     storage::OpenMlsProvider,
 };
 use openmls_traits::storage::StorageProvider as _;
-use tap::Pipe as _;
 use thiserror::Error;
-use tls_codec::{Serialize as _, TlsSerialize, TlsSize};
 
-use crate::extension::APQMLS_EXTENSION_ID;
+use crate::{extension::APQMLS_COMPONENT_ID, secret::Secret};
 
 /// Error while handling PSKs in APQMLS.
 #[derive(Debug, Error)]
@@ -38,14 +36,7 @@ pub enum ApqPskError<StorageError> {
     SerializingPskId(#[from] tls_codec::Error),
 }
 
-/// The ID of a PSK in APQMLS, consisting of the group ID and epoch of the PQ
-/// group.
-#[derive(Debug, Clone, TlsSize, TlsSerialize)]
-pub(crate) struct ApqPskId {
-    pub(crate) group_id: GroupId,
-    pub(crate) epoch: u64,
-}
-
+/// <https://datatracker.ietf.org/doc/html/draft-ietf-mls-combiner#name-key-schedule>
 pub(crate) fn derive_and_store_psk<
     Provider: openmls::storage::OpenMlsProvider,
     const FROM_PENDING: bool,
@@ -53,31 +44,32 @@ pub(crate) fn derive_and_store_psk<
     provider: &Provider,
     group: &mut MlsGroup,
     t_ciphersuite: Ciphersuite,
-    //ciphersuite: Ciphersuite,
 ) -> Result<PreSharedKeyId, ApqPskError<Provider::StorageError>> {
-    let (psk_value, epoch) = if FROM_PENDING {
-        let psk_value = group.safe_export_secret_from_pending(
-            provider.crypto(),
-            provider.storage(),
-            APQMLS_EXTENSION_ID,
-        )?;
-        let epoch = group.epoch().as_u64() + 1;
-        (psk_value, epoch)
+    let apq_exporter: Secret = if FROM_PENDING {
+        group
+            .safe_export_secret_from_pending(
+                provider.crypto(),
+                provider.storage(),
+                APQMLS_COMPONENT_ID,
+            )?
+            .into()
     } else {
-        let psk_value =
-            group.safe_export_secret(provider.crypto(), provider.storage(), APQMLS_EXTENSION_ID)?;
-        (psk_value, group.epoch().as_u64())
+        group
+            .safe_export_secret(provider.crypto(), provider.storage(), APQMLS_COMPONENT_ID)?
+            .into()
     };
-    // Prepare the PSK for the T group.
-    ApqPskId {
-        group_id: group.group_id().clone(),
-        epoch,
-    }
-    .tls_serialize_detached()?
-    .pipe(ExternalPsk::new)
-    .pipe(Psk::External)
-    .pipe(|psk| PreSharedKeyId::new(t_ciphersuite, provider.rand(), psk))?
-    .pipe(|id| store_psk(provider, id, &psk_value))
+
+    let apq_psk_id = apq_exporter.derive_secret(provider.crypto(), t_ciphersuite, "psk_id")?;
+    let apq_psk = apq_exporter.derive_secret(provider.crypto(), t_ciphersuite, "psk")?;
+    drop(apq_exporter); // Zeroize the secret
+
+    let psk = Psk::Application(ApplicationPsk::new(
+        APQMLS_COMPONENT_ID,
+        apq_psk_id.as_slice().into(),
+    ));
+
+    let id = PreSharedKeyId::new(t_ciphersuite, provider.rand(), psk)?;
+    store_psk(provider, id, apq_psk.as_slice())
 }
 
 pub(crate) fn store_psk<Provider: OpenMlsProvider>(

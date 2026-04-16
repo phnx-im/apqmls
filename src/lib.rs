@@ -39,6 +39,7 @@ mod merging;
 pub mod messages;
 pub mod processing;
 mod psk;
+mod secret;
 pub mod welcome;
 
 /// The combined ciphersuite of a [`ApqMlsGroup`].

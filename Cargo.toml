@@ -34,11 +34,11 @@ openmls_rust_crypto = { git = "https://github.com/openmls/openmls.git" }
 [patch."https://github.com/openmls/openmls.git"]
 # feat: Post-Quantum Cryptography support (ML-KEM + ML-DSA)
 # <https://github.com/openmls/openmls/pull/1994>
-openmls = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
-openmls_basic_credential = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
-openmls_rust_crypto = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
-openmls_traits = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
-openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", rev = "c71df9295f54c7fba9b56451a06edbba96bf651e" }
+openmls = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+openmls_basic_credential = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+openmls_rust_crypto = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+openmls_traits = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
 
 [patch.crates-io]
 # feat: add p384 support

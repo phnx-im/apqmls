@@ -8,8 +8,9 @@ use openmls::{
         WireFormatPolicy,
     },
     prelude::{
-        Capabilities, Extension, ExtensionType, Extensions, InvalidExtensionError, LeafNode,
-        Lifetime, RequiredCapabilitiesExtension, SenderRatchetConfiguration,
+        AppDataDictionary, AppDataDictionaryExtension, Capabilities, Extension, ExtensionType,
+        Extensions, InvalidExtensionError, LeafNode, Lifetime, ProposalType,
+        RequiredCapabilitiesExtension, SenderRatchetConfiguration,
     },
     storage::OpenMlsProvider,
     treesync::errors::LeafNodeValidationError,
@@ -20,7 +21,7 @@ use thiserror::Error;
 use crate::{
     ApqCiphersuite, ApqGroupId, ApqMlsGroup,
     authentication::{ApqCredentialWithKey, ApqSigner},
-    extension::{APQMLS_EXTENSION_TYPE, ApqMlsInfo, PqtMode, ensure_extension_support},
+    extension::{ApqInfo, PqtMode, ensure_component_support, ensure_extension_support},
     key_package::ensure_ciphersuite_support,
 };
 
@@ -100,8 +101,11 @@ impl GroupBuilder {
 
         // Add required capabilities extension
         let rc_extension = RequiredCapabilitiesExtension::new(
-            &[APQMLS_EXTENSION_TYPE, ExtensionType::RequiredCapabilities],
-            &[],
+            &[
+                ExtensionType::RequiredCapabilities,
+                ExtensionType::AppDataDictionary,
+            ],
+            &[ProposalType::AppDataUpdate],
             &[],
         )
         .pipe(Extension::RequiredCapabilities);
@@ -109,7 +113,7 @@ impl GroupBuilder {
         self.t_extensions.add_or_replace(rc_extension.clone())?;
         self.pq_extensions.add_or_replace(rc_extension)?;
 
-        let apq_mls_extension = ApqMlsInfo {
+        let info = ApqInfo {
             t_session_group_id: apq_group_id.t_group_id.clone(),
             pq_session_group_id: apq_group_id.pq_group_id.clone(),
             mode: self.mode,
@@ -117,12 +121,14 @@ impl GroupBuilder {
             pq_cipher_suite: ciphersuite.pq_ciphersuite,
             t_epoch: GroupEpoch::from(0),
             pq_epoch: GroupEpoch::from(0),
-        }
-        .to_extension()?;
-
-        self.t_extensions
-            .add_or_replace(apq_mls_extension.clone())?;
-        self.pq_extensions.add_or_replace(apq_mls_extension)?;
+        };
+        let mut dictionary = AppDataDictionary::new().pipe(ensure_component_support)?;
+        let (component_id, data) = info.to_component_data()?.into_parts();
+        dictionary.insert(component_id, data.into());
+        let add_extension =
+            Extension::AppDataDictionary(AppDataDictionaryExtension::new(dictionary));
+        self.t_extensions.add_or_replace(add_extension.clone())?;
+        self.pq_extensions.add_or_replace(add_extension)?;
 
         let t_group = self
             .t_group_builder
