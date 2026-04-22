@@ -19,7 +19,7 @@ use thiserror::Error;
 use crate::{
     ApqCiphersuite,
     authentication::{ApqCredentialWithKey, ApqSigner},
-    extension::ensure_extension_support,
+    extension::{ensure_extension_support, ensure_leaf_node_component_support},
     messages::{ApqKeyPackage, ApqKeyPackageIn},
 };
 
@@ -37,6 +37,8 @@ pub struct ApqKeyPackageBuilder {
     capabilities: Capabilities,
     t_kp_builder: KeyPackageBuilder,
     pq_kp_builder: KeyPackageBuilder,
+    key_package_extensions: Extensions<KeyPackage>,
+    leaf_node_extensions: Extensions<LeafNode>,
 }
 
 /// A bundle consisting of an [`ApqKeyPackage`] and its corresponding
@@ -69,6 +71,8 @@ impl ApqKeyPackageBuilder {
             capabilities: Capabilities::default(),
             t_kp_builder: KeyPackageBuilder::new(),
             pq_kp_builder: KeyPackageBuilder::new(),
+            key_package_extensions: Extensions::default(),
+            leaf_node_extensions: Extensions::default(),
         }
     }
 
@@ -81,8 +85,7 @@ impl ApqKeyPackageBuilder {
 
     /// Set the key package extensions.
     pub fn key_package_extensions(mut self, extensions: Extensions<KeyPackage>) -> Self {
-        self.t_kp_builder = self.t_kp_builder.key_package_extensions(extensions.clone());
-        self.pq_kp_builder = self.pq_kp_builder.key_package_extensions(extensions);
+        self.key_package_extensions = extensions;
         self
     }
 
@@ -103,8 +106,7 @@ impl ApqKeyPackageBuilder {
 
     /// Set the leaf node extensions.
     pub fn leaf_node_extensions(mut self, extensions: Extensions<LeafNode>) -> Self {
-        self.t_kp_builder = self.t_kp_builder.leaf_node_extensions(extensions.clone());
-        self.pq_kp_builder = self.pq_kp_builder.leaf_node_extensions(extensions);
+        self.leaf_node_extensions = extensions;
         self
     }
 
@@ -121,10 +123,21 @@ impl ApqKeyPackageBuilder {
             .pipe(ensure_extension_support)?
             .pipe(|c| ensure_ciphersuite_support(c, ciphersuite))?;
 
+        let ln_extensions = self
+            .leaf_node_extensions
+            .pipe(ensure_leaf_node_component_support)?;
+        let pk_extensions = self.key_package_extensions;
+
         self.t_kp_builder = self
             .t_kp_builder
-            .leaf_node_capabilities(capabilities.clone());
-        self.pq_kp_builder = self.pq_kp_builder.leaf_node_capabilities(capabilities);
+            .leaf_node_capabilities(capabilities.clone())
+            .leaf_node_extensions(ln_extensions.clone())
+            .key_package_extensions(pk_extensions.clone());
+        self.pq_kp_builder = self
+            .pq_kp_builder
+            .leaf_node_capabilities(capabilities)
+            .leaf_node_extensions(ln_extensions)
+            .key_package_extensions(pk_extensions);
         let t_kp_bundle = self.t_kp_builder.build(
             ciphersuite.t_ciphersuite,
             provider,

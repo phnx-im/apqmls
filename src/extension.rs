@@ -3,16 +3,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use openmls::{
+    component::{ComponentData, ComponentId, ComponentType},
     group::{GroupContext, GroupEpoch, GroupId},
-    prelude::{Capabilities, Ciphersuite, Extension, ExtensionType, Extensions, UnknownExtension},
+    prelude::{
+        AppDataDictionary, AppDataDictionaryExtension, Capabilities, Ciphersuite, Extension,
+        ExtensionType, Extensions, LeafNode, ProposalType,
+    },
 };
 use tap::Pipe;
 use tls_codec::{Deserialize as _, Serialize as _, TlsDeserialize, TlsSerialize, TlsSize};
 
 use crate::{ApqCiphersuite, ApqGroupId, ApqMlsGroup};
 
-pub const APQMLS_EXTENSION_ID: u16 = 0xFF01;
-pub const APQMLS_EXTENSION_TYPE: ExtensionType = ExtensionType::Unknown(APQMLS_EXTENSION_ID);
+/// The component ID of the APQMLS component.
+///
+/// The value is not yet finalized in the draft
+/// <https://datatracker.ietf.org/doc/html/draft-ietf-mls-combiner#name-key-schedule>.
+pub const APQMLS_COMPONENT_ID: ComponentId = 0x8001;
 
 /// The mode of an [`ApqMlsGroup`], which determines whether only confidentiality or both
 /// confidentiality and authentication is PQ secure.
@@ -46,7 +53,7 @@ impl PqtMode {
 /// The APQMLS extension, which is used to store APQMLS-specific information
 /// in the extensions of an [`openmls::group::MlsGroup`].
 #[derive(Debug, Clone, TlsSize, TlsSerialize, TlsDeserialize, PartialEq, Eq)]
-pub struct ApqMlsInfo {
+pub struct ApqInfo {
     pub t_session_group_id: GroupId,
     pub pq_session_group_id: GroupId,
     pub mode: PqtMode,
@@ -56,12 +63,10 @@ pub struct ApqMlsInfo {
     pub pq_epoch: GroupEpoch,
 }
 
-impl ApqMlsInfo {
-    pub(super) fn to_extension(&self) -> Result<Extension, tls_codec::Error> {
-        self.tls_serialize_detached()?
-            .pipe(UnknownExtension)
-            .pipe(|extension| Extension::Unknown(APQMLS_EXTENSION_ID, extension))
-            .pipe(Ok)
+impl ApqInfo {
+    pub(super) fn to_component_data(&self) -> Result<ComponentData, tls_codec::Error> {
+        let bytes = self.tls_serialize_detached()?;
+        Ok(ComponentData::from_parts(APQMLS_COMPONENT_ID, bytes.into()))
     }
 
     pub(super) fn set_epoch(&mut self, t_epoch: GroupEpoch, pq_epoch: GroupEpoch) {
@@ -72,14 +77,11 @@ impl ApqMlsInfo {
     pub fn from_extensions(
         extensions: &Extensions<GroupContext>,
     ) -> Result<Option<Self>, tls_codec::Error> {
-        if let Some(extension) = extensions.unknown(APQMLS_EXTENSION_ID) {
-            extension
-                .0
-                .pipe_as_ref::<'_, [u8], _>(ApqMlsInfo::tls_deserialize_exact)
-                .map(Some)
-        } else {
-            Ok(None)
-        }
+        extensions
+            .app_data_dictionary()
+            .and_then(|dict| dict.dictionary().get(&APQMLS_COMPONENT_ID))
+            .map(ApqInfo::tls_deserialize_exact)
+            .transpose()
     }
 
     pub fn group_id(&self) -> ApqGroupId {
@@ -94,12 +96,17 @@ pub(super) fn ensure_extension_support(
     capabilities: Capabilities,
 ) -> Result<Capabilities, tls_codec::Error> {
     let mut extensions = capabilities.extensions().to_vec();
-    if !extensions.contains(&APQMLS_EXTENSION_TYPE) {
-        extensions.push(APQMLS_EXTENSION_TYPE);
-    }
     if !extensions.contains(&ExtensionType::RequiredCapabilities) {
         extensions.push(ExtensionType::RequiredCapabilities);
     }
+    if !extensions.contains(&ExtensionType::AppDataDictionary) {
+        extensions.push(ExtensionType::AppDataDictionary);
+    }
+    let mut proposals: Vec<ProposalType> = capabilities.proposals().to_vec();
+    if !proposals.contains(&ProposalType::AppDataUpdate) {
+        proposals.push(ProposalType::AppDataUpdate);
+    }
+
     let ciphersuites: Vec<Ciphersuite> = capabilities
         .ciphersuites()
         .iter()
@@ -109,15 +116,53 @@ pub(super) fn ensure_extension_support(
         Some(capabilities.versions()),
         Some(&ciphersuites),
         Some(extensions.as_slice()),
-        Some(capabilities.proposals()),
+        Some(proposals.as_slice()),
         Some(capabilities.credentials()),
     )
     .pipe(Ok)
 }
 
+pub(super) fn ensure_component_support(
+    mut dictionary: AppDataDictionary,
+) -> Result<AppDataDictionary, tls_codec::Error> {
+    dictionary.insert(
+        ComponentId::from(ComponentType::AppComponents),
+        [APQMLS_COMPONENT_ID].as_slice().tls_serialize_detached()?,
+    );
+    Ok(dictionary)
+}
+
+pub(super) fn ensure_leaf_node_component_support(
+    mut extensions: Extensions<LeafNode>,
+) -> Result<Extensions<LeafNode>, tls_codec::Error> {
+    let mut dictionary = extensions
+        .app_data_dictionary()
+        .map(|extension| extension.dictionary().clone())
+        .unwrap_or_default();
+    let mut app_components: Vec<ComponentId> = dictionary
+        .get(&ComponentId::from(ComponentType::AppComponents))
+        .map(Vec::tls_deserialize_exact)
+        .transpose()?
+        .unwrap_or_default();
+
+    if !app_components.contains(&APQMLS_COMPONENT_ID) {
+        app_components.push(APQMLS_COMPONENT_ID);
+        dictionary.insert(
+            ComponentId::from(ComponentType::AppComponents),
+            app_components.tls_serialize_detached()?,
+        );
+        let extension = Extension::AppDataDictionary(AppDataDictionaryExtension::new(dictionary));
+        extensions
+            .add_or_replace(extension)
+            .expect("logic error: extension is valid");
+    }
+
+    Ok(extensions)
+}
+
 impl ApqMlsGroup {
-    /// Get the APQMLS extension from the group, if it exists.
-    pub fn apq_info(&self) -> Option<ApqMlsInfo> {
-        ApqMlsInfo::from_extensions(self.t_group.extensions()).ok()?
+    /// Get the APQMLS component from the group, if it exists.
+    pub fn apq_info(&self) -> Option<ApqInfo> {
+        ApqInfo::from_extensions(self.t_group.extensions()).ok()?
     }
 }

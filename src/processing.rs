@@ -5,23 +5,24 @@
 use std::fmt::Debug;
 
 use openmls::{
-    group::{ProcessMessageError, StagedCommit},
+    component::ComponentData,
+    group::{AppDataUpdates, MlsGroup, ProcessMessageError, StagedCommit},
     prelude::{
-        Credential, LeafNodeIndex, ProcessedMessage, ProcessedMessageContent, Proposal,
-        ProposalType, Sender,
+        AppDataUpdateOperation, Credential, LeafNodeIndex, ProcessedMessage,
+        ProcessedMessageContent, Proposal, ProposalIn, ProposalOrRefIn, ProposalType, Sender,
+        UnverifiedMessage,
     },
-    schedule::{ExternalPsk, PreSharedKeyId, Psk},
+    schedule::{PreSharedKeyId, Psk, psk::ApplicationPsk},
     storage::OpenMlsProvider,
 };
-use tap::Pipe as _;
 use thiserror::Error;
-use tls_codec::Serialize;
 
 use crate::{
     ApqMlsGroup,
-    extension::{APQMLS_EXTENSION_ID, ApqMlsInfo},
+    extension::{APQMLS_COMPONENT_ID, ApqInfo},
     messages::ApqProtocolMessage,
-    psk::{ApqPskError, ApqPskId, store_psk},
+    psk::{ApqPskError, store_psk},
+    secret::Secret,
 };
 
 /// A bundle consisting of the processed messages of both the traditional and
@@ -66,10 +67,10 @@ pub enum ApqProcessMessageError<StorageError> {
     InvalidMessageType,
     #[error("The MLS messages don't match.")]
     MismatchedMessages,
-    #[error("APQMLSInfo extension is missing or invalid in commit message.")]
-    MissingApqMlsInfo,
-    #[error("APQMLSInfo extension content is invalid.")]
-    InvalidApqMlsInfo,
+    #[error("APQInfo extension is missing or invalid in commit message.")]
+    MissingApqInfo,
+    #[error("APQInfo extension content is invalid.")]
+    InvalidApqInfo,
 }
 
 #[derive(Eq)]
@@ -277,9 +278,17 @@ impl ApqMlsGroup {
     {
         let protocol_message: ApqProtocolMessage = message.into();
         // We only export a PSK if we process a PQ message
+        let unverified_pq_message = self
+            .pq_group
+            .unprotect_message(provider, protocol_message.pq_protocol_message)?;
+        let pq_updates = extract_app_data_updates(&self.pq_group, &unverified_pq_message);
         let mut pq_message = self
             .pq_group
-            .process_message(provider, protocol_message.pq_protocol_message)?;
+            .process_unverified_message_with_app_data_updates(
+                provider,
+                unverified_pq_message,
+                pq_updates,
+            )?;
 
         let msg_type = MessageType::new(pq_message.content(), &sender_equivalence)
             .ok_or(ApqProcessMessageError::InvalidMessageType)?;
@@ -293,27 +302,39 @@ impl ApqMlsGroup {
             pq_message.content(),
             ProcessedMessageContent::StagedCommitMessage(_)
         ) {
-            let psk_value = pq_message
-                .safe_export_secret(provider.crypto(), APQMLS_EXTENSION_ID)
-                .map_err(ApqPskError::ExportFromProcessed)?;
+            let apq_exporter: Secret = pq_message
+                .safe_export_secret(provider.crypto(), APQMLS_COMPONENT_ID)
+                .map_err(ApqPskError::ExportFromProcessed)?
+                .into();
 
-            let next_epoch = self.pq_group.epoch().as_u64() + 1;
-            ApqPskId {
-                group_id: self.pq_group.group_id().clone(),
-                epoch: next_epoch,
-            }
-            .tls_serialize_detached()
-            .map_err(ApqPskError::SerializingPskId)?
-            .pipe(ExternalPsk::new)
-            .pipe(Psk::External)
-            .pipe(|psk| PreSharedKeyId::new(self.t_group.ciphersuite(), provider.rand(), psk))
-            .map_err(ApqPskError::DerivingPskId)?
-            .pipe(|id| store_psk(provider, id, &psk_value))?;
+            let apq_psk_id = apq_exporter
+                .derive_secret(provider.crypto(), self.t_group.ciphersuite(), "psk_id")
+                .map_err(ApqPskError::DerivingPskId)?;
+            let apq_psk = apq_exporter
+                .derive_secret(provider.crypto(), self.t_group.ciphersuite(), "psk")
+                .map_err(ApqPskError::DerivingPskId)?;
+            drop(apq_exporter); // Zeroize the secret
+
+            let psk = Psk::Application(ApplicationPsk::new(
+                APQMLS_COMPONENT_ID,
+                apq_psk_id.as_slice().into(),
+            ));
+            let id = PreSharedKeyId::new(self.t_group.ciphersuite(), provider.rand(), psk)
+                .map_err(ApqPskError::DerivingPskId)?;
+            store_psk(provider, id, apq_psk.as_slice())?;
         }
 
+        let unverified_t_message = self
+            .t_group
+            .unprotect_message(provider, protocol_message.t_protocol_message)?;
+        let t_updates = extract_app_data_updates(&self.t_group, &unverified_t_message);
         let t_message = self
             .t_group
-            .process_message(provider, protocol_message.t_protocol_message)?;
+            .process_unverified_message_with_app_data_updates(
+                provider,
+                unverified_t_message,
+                t_updates,
+            )?;
 
         let msg_type = MessageType::new(t_message.content(), &sender_equivalence)
             .ok_or(ApqProcessMessageError::InvalidMessageType)?;
@@ -327,53 +348,52 @@ impl ApqMlsGroup {
             return Err(ApqProcessMessageError::MismatchedMessages);
         }
 
-        // If both are commits, the APQMLSInfo extension must be updated and in
+        // If both are commits, the [`ApqInfo`] component must be updated and in
         // line with the info of both groups
         if let ProcessedMessageContent::StagedCommitMessage(pq_staged_commit) = pq_message.content()
             && let ProcessedMessageContent::StagedCommitMessage(t_staged_commit) =
                 t_message.content()
         {
-            let pq_extension =
-                ApqMlsInfo::from_extensions(pq_staged_commit.group_context().extensions())
-                    .map_err(|_| ApqProcessMessageError::MissingApqMlsInfo)?
-                    .ok_or(ApqProcessMessageError::MissingApqMlsInfo)?;
-            let t_extension =
-                ApqMlsInfo::from_extensions(t_staged_commit.group_context().extensions())
-                    .map_err(|_| ApqProcessMessageError::MissingApqMlsInfo)?
-                    .ok_or(ApqProcessMessageError::MissingApqMlsInfo)?;
+            let pq_apq_info =
+                ApqInfo::from_extensions(pq_staged_commit.group_context().extensions())
+                    .map_err(|_| ApqProcessMessageError::InvalidApqInfo)?
+                    .ok_or(ApqProcessMessageError::MissingApqInfo)?;
+            let t_apq_info = ApqInfo::from_extensions(t_staged_commit.group_context().extensions())
+                .map_err(|_| ApqProcessMessageError::InvalidApqInfo)?
+                .ok_or(ApqProcessMessageError::MissingApqInfo)?;
 
-            // Extension contents must match
-            let extensions_match = pq_extension == t_extension;
+            // ApqInfo contents must match
+            let apq_info_match = pq_apq_info == t_apq_info;
 
             // Epochs must be in line with the groups
-            let epochs_match = pq_extension.pq_epoch == pq_staged_commit.group_context().epoch()
-                && t_extension.t_epoch == t_staged_commit.group_context().epoch();
+            let epochs_match = pq_apq_info.pq_epoch == pq_staged_commit.group_context().epoch()
+                && t_apq_info.t_epoch == t_staged_commit.group_context().epoch();
 
             // New epochs must be one higher than the current ones
-            let epochs_are_incremented = pq_extension.pq_epoch.as_u64()
+            let epochs_are_incremented = pq_apq_info.pq_epoch.as_u64()
                 == self.pq_group.epoch().as_u64() + 1
-                && t_extension.t_epoch.as_u64() == self.t_group.epoch().as_u64() + 1;
+                && t_apq_info.t_epoch.as_u64() == self.t_group.epoch().as_u64() + 1;
 
             // Group IDs must be in line with the groups
-            let group_ids_match = pq_extension.pq_session_group_id == *self.pq_group.group_id()
-                && t_extension.t_session_group_id == *self.t_group.group_id();
+            let group_ids_match = pq_apq_info.pq_session_group_id == *self.pq_group.group_id()
+                && t_apq_info.t_session_group_id == *self.t_group.group_id();
 
             // Ciphersuites must be in line with the groups
-            let ciphersuites_match = pq_extension.pq_cipher_suite == self.pq_group.ciphersuite()
-                && t_extension.t_cipher_suite == self.t_group.ciphersuite();
+            let ciphersuites_match = pq_apq_info.pq_cipher_suite == self.pq_group.ciphersuite()
+                && t_apq_info.t_cipher_suite == self.t_group.ciphersuite();
 
             // Mode is correctly set
             let ciphersuite_matches_mode =
-                self.ciphersuite() == pq_extension.mode.default_ciphersuite();
+                self.ciphersuite() == pq_apq_info.mode.default_ciphersuite();
 
-            if !extensions_match
+            if !apq_info_match
                 || !epochs_match
                 || !epochs_are_incremented
                 || !group_ids_match
                 || !ciphersuites_match
                 || !ciphersuite_matches_mode
             {
-                return Err(ApqProcessMessageError::InvalidApqMlsInfo);
+                return Err(ApqProcessMessageError::InvalidApqInfo);
             }
         }
 
@@ -382,4 +402,28 @@ impl ApqMlsGroup {
             pq_message,
         })
     }
+}
+
+fn extract_app_data_updates(
+    group: &MlsGroup,
+    unverified: &UnverifiedMessage,
+) -> Option<AppDataUpdates> {
+    let mut updater = group.app_data_dictionary_updater();
+    let mut updated = false;
+    for proposal in unverified.committed_proposals()? {
+        if let ProposalOrRefIn::Proposal(p) = proposal
+            && let ProposalIn::AppDataUpdate(p) = &**p
+        {
+            match p.operation() {
+                AppDataUpdateOperation::Update(data) => {
+                    updater.set(ComponentData::from_parts(p.component_id(), data.clone()));
+                }
+                AppDataUpdateOperation::Remove => {
+                    updater.remove(&p.component_id());
+                }
+            }
+            updated = true;
+        }
+    }
+    updated.then(|| updater.changes()).flatten()
 }
