@@ -30,6 +30,7 @@ tls_codec = "0.4.2"
 
 [dev-dependencies]
 openmls_rust_crypto = { git = "https://github.com/openmls/openmls.git" }
+ciborium = "0.2"
 
 [patch."https://github.com/openmls/openmls.git"]
 # feat: Post-Quantum Cryptography support (ML-KEM + ML-DSA)

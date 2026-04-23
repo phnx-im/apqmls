@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Measures serialized sizes (bytes) of APQ MLS group messages across
-//! ciphersuites and group sizes.
+//! Measures message sizes and CBOR-encoded storage size of APQ MLS group state
+//! across ciphersuites and group sizes.
 //!
 //! Run with: `cargo run --example sizes`
 
@@ -15,7 +15,7 @@ use apqmls::{
 };
 use openmls::{
     group::MlsGroupJoinConfig,
-    prelude::{Ciphersuite, Credential},
+    prelude::{Ciphersuite, Credential, OpenMlsProvider},
 };
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use tls_codec::{Deserialize as _, Serialize as _};
@@ -28,19 +28,23 @@ struct Member {
     group: ApqMlsGroup,
 }
 
+/// Returns the CBOR-encoded size of all key-value pairs in the provider's storage.
+fn cbor_storage_size(provider: &OpenMlsRustCrypto) -> usize {
+    let values = provider.storage().values.read().unwrap();
+    let mut buf = Vec::new();
+    ciborium::into_writer(&*values, &mut buf).unwrap();
+    buf.len()
+}
+
 struct SizeReport {
-    ciphersuite_label: &'static str,
+    label: &'static str,
     group_size: usize,
     key_package_bytes: usize,
     add_commit_bytes: usize,
     welcome_bytes: usize,
-    update_commit_bytes: [usize; EPOCHS],
-}
-
-impl SizeReport {
-    fn avg_update_commit(&self) -> usize {
-        self.update_commit_bytes.iter().sum::<usize>() / EPOCHS
-    }
+    update_commit_bytes: usize,
+    creator_storage_bytes: usize,
+    member_storage_bytes: usize,
 }
 
 fn new_client(
@@ -74,11 +78,12 @@ fn measure(
     mode: PqtMode,
     ciphersuite: ApqCiphersuite,
     group_size: usize,
-    ciphersuite_label: &'static str,
+    label: &'static str,
 ) -> SizeReport {
     let (creator_provider, creator_signer, creator_cred) = new_client("alice", ciphersuite);
     let mut creator_group = ApqMlsGroup::builder()
         .set_mode(mode)
+        .with_ciphersuite(ciphersuite)
         .build(&creator_provider, &creator_signer, creator_cred)
         .unwrap();
 
@@ -113,7 +118,6 @@ fn measure(
         last_add_commit_bytes = bundle.commit.tls_serialize_detached().unwrap().len();
         let commit_for_members = bundle.commit.clone();
 
-        // Serialize welcome to measure wire size, then deserialize for joining.
         let welcome_out = ApqMlsMessageOut::from(bundle.welcome.unwrap());
         let welcome_bytes = welcome_out.tls_serialize_detached().unwrap();
         last_welcome_bytes = welcome_bytes.len();
@@ -142,9 +146,9 @@ fn measure(
         });
     }
 
-    // Run EPOCHS self-update epochs (creator updates, all members process).
-    let mut update_commit_bytes = [0usize; EPOCHS];
-    for epoch_bytes in &mut update_commit_bytes {
+    // Run EPOCHS self-update epochs and track average commit size.
+    let mut update_commit_total = 0usize;
+    for _ in 0..EPOCHS {
         let bundle = creator_group
             .commit_builder()
             .force_self_update(true)
@@ -154,26 +158,46 @@ fn measure(
             .merge_pending_commit(&creator_provider)
             .unwrap();
 
-        *epoch_bytes = bundle.commit.tls_serialize_detached().unwrap().len();
+        update_commit_total += bundle.commit.tls_serialize_detached().unwrap().len();
         let commit_for_members = bundle.commit.clone();
-
         for m in &mut members {
             process_commit_on_member(m, &commit_for_members);
         }
     }
 
+    let creator_storage_bytes = cbor_storage_size(&creator_provider);
+    let member_storage_bytes = if members.is_empty() {
+        0
+    } else {
+        members
+            .iter()
+            .map(|m| cbor_storage_size(&m.provider))
+            .sum::<usize>()
+            / members.len()
+    };
+
     SizeReport {
-        ciphersuite_label,
+        label,
         group_size,
         key_package_bytes: last_kp_bytes,
         add_commit_bytes: last_add_commit_bytes,
         welcome_bytes: last_welcome_bytes,
-        update_commit_bytes,
+        update_commit_bytes: update_commit_total / EPOCHS,
+        creator_storage_bytes,
+        member_storage_bytes,
     }
 }
 
 fn main() {
     let configs: &[(&'static str, PqtMode, ApqCiphersuite)] = &[
+        (
+            "MLKEM1024+Ed25519",
+            PqtMode::ConfAndAuth,
+            ApqCiphersuite::new(
+                Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519,
+                Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87,
+            ),
+        ),
         (
             "MLKEM1024+MLDSA87",
             PqtMode::ConfAndAuth,
@@ -193,10 +217,17 @@ fn main() {
     ];
 
     println!(
-        "{:<14} {:>7} {:>12} {:>12} {:>10} {:>18}",
-        "Ciphersuite", "Members", "KeyPkg (B)", "AddCommit (B)", "Welcome (B)", "UpdateCommit (B)"
+        "{:<20} {:>7} {:>10} {:>12} {:>10} {:>14} {:>16} {:>14}",
+        "Ciphersuite",
+        "Members",
+        "KP (B)",
+        "AddCommit (B)",
+        "Welcome (B)",
+        "UpdCommit (B)",
+        "CreatorStore (B)",
+        "MemberStore (B)",
     );
-    println!("{}", "-".repeat(79));
+    println!("{}", "-".repeat(107));
 
     for &(label, mode, ciphersuite) in configs {
         for &size in GROUP_SIZES {
@@ -204,13 +235,15 @@ fn main() {
             let r = measure(mode, ciphersuite, size, label);
             eprintln!(" done");
             println!(
-                "{:<14} {:>7} {:>12} {:>12} {:>10} {:>18}",
-                r.ciphersuite_label,
+                "{:<20} {:>7} {:>10} {:>12} {:>10} {:>14} {:>16} {:>14}",
+                r.label,
                 r.group_size,
                 r.key_package_bytes,
                 r.add_commit_bytes,
                 r.welcome_bytes,
-                r.avg_update_commit(),
+                r.update_commit_bytes,
+                r.creator_storage_bytes,
+                r.member_storage_bytes,
             );
         }
         println!();
