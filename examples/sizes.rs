@@ -13,7 +13,10 @@ use apqmls::{
     extension::PqtMode,
     messages::{ApqKeyPackage, ApqMlsMessageIn, ApqMlsMessageOut},
 };
-use openmls::{group::MlsGroupJoinConfig, prelude::Credential};
+use openmls::{
+    group::MlsGroupJoinConfig,
+    prelude::{Ciphersuite, Credential},
+};
 use openmls_rust_crypto::OpenMlsRustCrypto;
 use tls_codec::{Deserialize as _, Serialize as _};
 
@@ -67,9 +70,12 @@ fn process_commit_on_member(member: &mut Member, commit: &ApqMlsMessageOut) {
         .unwrap();
 }
 
-fn measure(mode: PqtMode, group_size: usize, ciphersuite_label: &'static str) -> SizeReport {
-    let ciphersuite = mode.default_ciphersuite();
-
+fn measure(
+    mode: PqtMode,
+    ciphersuite: ApqCiphersuite,
+    group_size: usize,
+    ciphersuite_label: &'static str,
+) -> SizeReport {
     let (creator_provider, creator_signer, creator_cred) = new_client("alice", ciphersuite);
     let mut creator_group = ApqMlsGroup::builder()
         .set_mode(mode)
@@ -167,9 +173,23 @@ fn measure(mode: PqtMode, group_size: usize, ciphersuite_label: &'static str) ->
 }
 
 fn main() {
-    let configs: &[(PqtMode, &'static str)] = &[
-        (PqtMode::ConfOnly, "ConfOnly"),
-        (PqtMode::ConfAndAuth, "ConfAndAuth"),
+    let configs: &[(&'static str, PqtMode, ApqCiphersuite)] = &[
+        (
+            "MLKEM1024+MLDSA87",
+            PqtMode::ConfAndAuth,
+            ApqCiphersuite::new(
+                Ciphersuite::MLS_256_DHKEMP384_AES256GCM_SHA384_P384,
+                Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87,
+            ),
+        ),
+        (
+            "MLKEM1024+P384",
+            PqtMode::ConfOnly,
+            ApqCiphersuite::new(
+                Ciphersuite::MLS_256_DHKEMP384_AES256GCM_SHA384_P384,
+                Ciphersuite::MLS_192_MLKEM1024_AES256GCM_SHA384_P384,
+            ),
+        ),
     ];
 
     println!(
@@ -178,10 +198,10 @@ fn main() {
     );
     println!("{}", "-".repeat(79));
 
-    for &(mode, label) in configs {
+    for &(label, mode, ciphersuite) in configs {
         for &size in GROUP_SIZES {
             eprint!("  {label} / {size} members ...");
-            let r = measure(mode, size, label);
+            let r = measure(mode, ciphersuite, size, label);
             eprintln!(" done");
             println!(
                 "{:<14} {:>7} {:>12} {:>12} {:>10} {:>18}",

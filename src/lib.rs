@@ -50,6 +50,13 @@ pub struct ApqCiphersuite {
 }
 
 impl ApqCiphersuite {
+    pub const fn new(t_ciphersuite: Ciphersuite, pq_ciphersuite: Ciphersuite) -> Self {
+        Self {
+            t_ciphersuite,
+            pq_ciphersuite,
+        }
+    }
+
     pub const fn default_pq_conf_and_auth() -> Self {
         Self {
             t_ciphersuite: Ciphersuite::MLS_256_DHKEMP384_AES256GCM_SHA384_P384,
