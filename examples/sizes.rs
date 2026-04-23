@@ -444,17 +444,10 @@ fn main() {
     }
 
     // TABLE 1: Performance Summary
-    println!("\n### TABLE 1: Performance Summary\n");
+    println!("\n### TABLE 1: Summary (Bytes)\n");
     println!(
         "{:<45} {:>7} {:>10} {:>12} {:>10} {:>14} {:>12} {:>12}",
-        "Ciphersuite",
-        "Members",
-        "KP (B)",
-        "Add (B)",
-        "Welc (B)",
-        "Upd (B)",
-        "Creator (B)",
-        "Member (B)"
+        "Ciphersuite", "Members", "KP", "Add", "Welc", "Upd", "Creator", "Member"
     );
     println!("{}", "-".repeat(129));
 
@@ -473,7 +466,7 @@ fn main() {
     }
 
     // TABLE 2: Creator Storage Breakdown
-    println!("\n### TABLE 2: Creator Storage Details (Bytes)\n");
+    println!("\n### TABLE 2: Creator Storage Group Data Details (Bytes)\n");
     println!(
         "{:<45} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
         "Ciphersuite",
