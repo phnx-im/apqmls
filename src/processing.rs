@@ -382,16 +382,11 @@ impl ApqMlsGroup {
             let ciphersuites_match = pq_apq_info.pq_cipher_suite == self.pq_group.ciphersuite()
                 && t_apq_info.t_cipher_suite == self.t_group.ciphersuite();
 
-            // Mode is correctly set
-            let ciphersuite_matches_mode =
-                self.ciphersuite() == pq_apq_info.mode.default_ciphersuite();
-
             if !apq_info_match
                 || !epochs_match
                 || !epochs_are_incremented
                 || !group_ids_match
                 || !ciphersuites_match
-                || !ciphersuite_matches_mode
             {
                 return Err(ApqProcessMessageError::InvalidApqInfo);
             }
