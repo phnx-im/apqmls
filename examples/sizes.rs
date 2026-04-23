@@ -36,6 +36,18 @@ fn cbor_storage_size(provider: &OpenMlsRustCrypto) -> usize {
     buf.len()
 }
 
+fn commify(n: usize) -> String {
+    let s = n.to_string();
+    let mut out = String::new();
+    for (i, c) in s.chars().rev().enumerate() {
+        if i > 0 && i % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out.chars().rev().collect()
+}
+
 struct SizeReport {
     label: &'static str,
     group_size: usize,
@@ -189,35 +201,53 @@ fn measure(
 }
 
 fn main() {
+    const T_CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519;
+    // Note: TBD1 is not interesting with AES-GCM128
     let configs: &[(&'static str, PqtMode, ApqCiphersuite)] = &[
         (
-            "MLKEM1024+Ed25519",
-            PqtMode::ConfAndAuth,
-            ApqCiphersuite::new(
-                Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519,
-                Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87,
-            ),
-        ),
-        (
-            "MLKEM1024+MLDSA87",
-            PqtMode::ConfAndAuth,
-            ApqCiphersuite::new(
-                Ciphersuite::MLS_256_DHKEMP384_AES256GCM_SHA384_P384,
-                Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87,
-            ),
-        ),
-        (
-            "MLKEM1024+P384",
+            "TBD2 MLKEM768X25519_AES256GCM_SHA384_Ed25519",
             PqtMode::ConfOnly,
             ApqCiphersuite::new(
-                Ciphersuite::MLS_256_DHKEMP384_AES256GCM_SHA384_P384,
+                T_CIPHERSUITE,
+                Ciphersuite::MLS_128_MLKEM768X25519_AES256GCM_SHA384_Ed25519,
+            ),
+        ),
+        (
+            "TBD6 MLKEM768_AES256GCM_SHA384_P256",
+            PqtMode::ConfOnly,
+            ApqCiphersuite::new(
+                T_CIPHERSUITE,
+                Ciphersuite::MLS_128_MLKEM768_AES256GCM_SHA384_P256,
+            ),
+        ),
+        (
+            "TBD7 MLKEM1024_AES256GCM_SHA384_P384",
+            PqtMode::ConfOnly,
+            ApqCiphersuite::new(
+                T_CIPHERSUITE,
                 Ciphersuite::MLS_192_MLKEM1024_AES256GCM_SHA384_P384,
+            ),
+        ),
+        (
+            "TBD8 MLKEM768_AES256GCM_SHA384_MLDSA65",
+            PqtMode::ConfAndAuth,
+            ApqCiphersuite::new(
+                T_CIPHERSUITE,
+                Ciphersuite::MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65,
+            ),
+        ),
+        (
+            "TBD9 MLKEM1024_AES256GCM_SHA384_MLDSA87",
+            PqtMode::ConfAndAuth,
+            ApqCiphersuite::new(
+                T_CIPHERSUITE,
+                Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA384_MLDSA87,
             ),
         ),
     ];
 
     println!(
-        "{:<20} {:>7} {:>10} {:>12} {:>10} {:>14} {:>16} {:>14}",
+        "{:<45} {:>7} {:>10} {:>12} {:>10} {:>14} {:>16} {:>14}",
         "Ciphersuite",
         "Members",
         "KP (B)",
@@ -227,23 +257,21 @@ fn main() {
         "CreatorStore (B)",
         "MemberStore (B)",
     );
-    println!("{}", "-".repeat(107));
+    println!("{}", "-".repeat(132));
 
     for &(label, mode, ciphersuite) in configs {
         for &size in GROUP_SIZES {
-            eprint!("  {label} / {size} members ...");
             let r = measure(mode, ciphersuite, size, label);
-            eprintln!(" done");
             println!(
-                "{:<20} {:>7} {:>10} {:>12} {:>10} {:>14} {:>16} {:>14}",
+                "{:<45} {:>7} {:>10} {:>12} {:>10} {:>14} {:>16} {:>14}",
                 r.label,
-                r.group_size,
-                r.key_package_bytes,
-                r.add_commit_bytes,
-                r.welcome_bytes,
-                r.update_commit_bytes,
-                r.creator_storage_bytes,
-                r.member_storage_bytes,
+                commify(r.group_size),
+                commify(r.key_package_bytes),
+                commify(r.add_commit_bytes),
+                commify(r.welcome_bytes),
+                commify(r.update_commit_bytes),
+                commify(r.creator_storage_bytes),
+                commify(r.member_storage_bytes),
             );
         }
         println!();

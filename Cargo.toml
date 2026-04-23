@@ -35,18 +35,26 @@ ciborium = "0.2"
 [patch."https://github.com/openmls/openmls.git"]
 # feat: Post-Quantum Cryptography support (ML-KEM + ML-DSA)
 # <https://github.com/openmls/openmls/pull/1994>
-openmls = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
-openmls_basic_credential = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
-openmls_rust_crypto = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
-openmls_traits = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
-openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+# openmls = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+# openmls_basic_credential = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+# openmls_rust_crypto = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+# openmls_traits = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+# openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+openmls = { path = "../openmls/openmls" }
+openmls_basic_credential = { path = "../openmls/basic_credential/" }
+openmls_rust_crypto = { path = "../openmls/openmls_rust_crypto/" }
+openmls_traits = { path = "../openmls/traits/" }
+openmls_memory_storage = { path = "../openmls/memory_storage/" }
 
 [patch.crates-io]
 # feat: add p384 support
 # <https://github.com/cryspen/hpke-rs/pull/150>
-hpke-rs = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
-hpke-rs-crypto = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
-hpke-rs-rust-crypto = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
+# hpke-rs = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
+# hpke-rs-crypto = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
+# hpke-rs-rust-crypto = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
+hpke-rs = { path = "../hpke-rs" }
+hpke-rs-crypto = { path = "../hpke-rs/traits/" }
+hpke-rs-rust-crypto = { path = "../hpke-rs/rust_crypto_provider/" }
 
 [package.metadata.cargo-machete]
 ignored = [
