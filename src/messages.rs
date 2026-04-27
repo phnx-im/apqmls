@@ -121,6 +121,7 @@ impl From<ApqWelcome> for ApqMlsMessageOut {
 }
 
 /// A ratchet tree for an [`crate::ApqMlsGroup`].
+#[derive(Clone)]
 pub struct ApqRatchetTree {
     pub(crate) t_ratchet_tree: RatchetTree,
     pub(crate) pq_ratchet_tree: RatchetTree,

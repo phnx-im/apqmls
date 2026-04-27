@@ -10,7 +10,6 @@
 use std::{
     convert::Infallible,
     ops::{Add, Div},
-    path::PathBuf,
 };
 
 use apqmls::{
@@ -19,22 +18,19 @@ use apqmls::{
     extension::PqtMode,
     messages::{ApqKeyPackage, ApqMlsMessageIn, ApqMlsMessageOut},
 };
+use indicatif::{ProgressBar, ProgressStyle};
 use openmls::{
     group::MlsGroupJoinConfig,
     prelude::{Ciphersuite, Credential, OpenMlsProvider},
 };
 use openmls_rust_crypto::RustCrypto;
 use openmls_sqlite_storage::{Codec, SqliteStorageProvider};
+use rayon::prelude::*;
 use serde::Serialize;
 use tls_codec::{Deserialize as _, Serialize as _};
+use tracing::{info, instrument};
 
-const GROUP_SIZES: &[usize] = &[2, 10];
-const EPOCHS: usize = 10;
-
-struct Member {
-    provider: Provider,
-    group: ApqMlsGroup,
-}
+const GROUP_SIZES: &[usize] = &[100, 500];
 
 #[derive(Default)]
 struct StorageSize {
@@ -120,8 +116,7 @@ impl Div<usize> for StorageSize {
 }
 
 /// Returns the CBOR-encoded size of all key-value pairs in the provider's storage.
-fn storage_size(provider: &Provider) -> StorageSize {
-    let connection = rusqlite::Connection::open(&provider.path).unwrap();
+fn storage_size(connection: &mut rusqlite::Connection) -> StorageSize {
     let mut stmt = connection
         .prepare(
             "SELECT data_type, SUM(LENGTH(group_data))
@@ -157,7 +152,13 @@ fn storage_size(provider: &Provider) -> StorageSize {
             _ => {}
         }
     }
-    sizes.full_db = provider.path.metadata().unwrap().len().try_into().unwrap();
+
+    let mut stmt = connection.prepare("PRAGMA page_count").unwrap();
+    let page_count: i64 = stmt.query_one([], |row| row.get(0)).unwrap();
+    let mut stmt = connection.prepare("PRAGMA page_size").unwrap();
+    let page_size: i64 = stmt.query_one([], |row| row.get(0)).unwrap();
+    sizes.full_db = (page_count * page_size).try_into().unwrap();
+
     sizes
 }
 
@@ -184,31 +185,16 @@ struct SizeReport {
     member_storage_bytes: StorageSize,
 }
 
-struct Provider {
-    path: PathBuf,
+struct Provider<'c> {
     crypto: RustCrypto,
-    storage: SqliteStorageProvider<CborCodec, rusqlite::Connection>,
+    storage: SqliteStorageProvider<CborCodec, &'c mut rusqlite::Connection>,
 }
 
-impl Provider {
-    fn new(name: &str) -> Self {
-        let tempfile = tempfile::Builder::new()
-            .prefix(&format!("apqmls-{name}-"))
-            .suffix(".db")
-            .disable_cleanup(true)
-            .tempfile()
-            .unwrap();
-        let path = tempfile.path().to_owned();
-        let connection = rusqlite::Connection::open(&path).unwrap();
-        connection
-            .execute_batch("PRAGMA journal_mode=WAL;")
-            .unwrap();
-        let mut storage = SqliteStorageProvider::new(connection);
-        storage.run_migrations().unwrap();
+impl<'c> Provider<'c> {
+    fn new(connection: &'c mut rusqlite::Connection) -> Self {
         Self {
-            path,
             crypto: RustCrypto::default(),
-            storage,
+            storage: SqliteStorageProvider::new(connection),
         }
     }
 }
@@ -230,10 +216,10 @@ impl Codec for CborCodec {
     }
 }
 
-impl OpenMlsProvider for Provider {
+impl<'c> OpenMlsProvider for Provider<'c> {
     type CryptoProvider = RustCrypto;
     type RandProvider = RustCrypto;
-    type StorageProvider = SqliteStorageProvider<CborCodec, rusqlite::Connection>;
+    type StorageProvider = SqliteStorageProvider<CborCodec, &'c mut rusqlite::Connection>;
 
     fn storage(&self) -> &Self::StorageProvider {
         &self.storage
@@ -248,57 +234,117 @@ impl OpenMlsProvider for Provider {
     }
 }
 
-fn new_client(
-    name: &str,
-    ciphersuite: ApqCiphersuite,
-) -> (Provider, ApqSignatureKeyPair, ApqCredentialWithKey) {
-    let provider = Provider::new(name);
-    let signer = ApqSignatureKeyPair::new(ciphersuite.into()).unwrap();
-    let credential_with_key = ApqCredentialWithKey::new(name.as_bytes(), &signer);
-    (provider, signer, credential_with_key)
+struct Client {
+    signer: ApqSignatureKeyPair,
+    cred: ApqCredentialWithKey,
+    connection: rusqlite::Connection,
+    group: Option<ApqMlsGroup>,
 }
 
-fn process_commit_on_member(member: &mut Member, commit: &ApqMlsMessageOut) {
+impl Client {
+    fn process_commit(&mut self, commit: &ApqMlsMessageOut) {
+        let provider = Provider::new(&mut self.connection);
+        let group = self.group.as_mut().unwrap();
+        process_commit(group, &provider, commit);
+    }
+
+    fn self_update(&mut self) -> ApqMlsMessageOut {
+        let provider = Provider::new(&mut self.connection);
+        let group = self.group.as_mut().unwrap();
+        member_self_update(group, &provider, &self.signer)
+    }
+}
+
+fn new_client(name: &str, ciphersuite: ApqCiphersuite) -> Client {
+    let mut connection = rusqlite::Connection::open_in_memory().unwrap();
+    let mut provider = Provider::new(&mut connection);
+    provider.storage.run_migrations().unwrap();
+
+    let signer = ApqSignatureKeyPair::new(ciphersuite.into()).unwrap();
+    let cred = ApqCredentialWithKey::new(name.as_bytes(), &signer);
+    Client {
+        signer,
+        cred,
+        connection,
+        group: None,
+    }
+}
+
+fn process_commit(group: &mut ApqMlsGroup, provider: &Provider, commit: &ApqMlsMessageOut) {
     let msg_in = ApqMlsMessageIn::try_from(commit.clone()).unwrap();
     let protocol_msg = msg_in.into_protocol_message().unwrap();
-    let processed = member
-        .group
+    let processed = group
         .process_message(
-            &member.provider,
+            provider,
             protocol_msg,
             |c1: &Credential, c2: &Credential| c1 == c2,
         )
         .unwrap();
-    member
-        .group
-        .merge_staged_commit(&member.provider, processed.into_staged_commit().unwrap())
+    group
+        .merge_staged_commit(provider, processed.into_staged_commit().unwrap())
         .unwrap();
 }
 
+fn member_self_update(
+    group: &mut ApqMlsGroup,
+    provider: &Provider<'_>,
+    signer: &ApqSignatureKeyPair,
+) -> ApqMlsMessageOut {
+    let bundle = group
+        .commit_builder()
+        .force_self_update(true)
+        .finalize(provider, signer, |_| true, |_| true)
+        .unwrap();
+    group.merge_pending_commit(provider).unwrap();
+    bundle.commit
+}
+
+#[instrument(skip(pb, mode, ciphersuite))]
 fn measure(
     mode: PqtMode,
     ciphersuite: ApqCiphersuite,
     group_size: usize,
     label: &'static str,
+    pb: &ProgressBar,
 ) -> SizeReport {
-    let (creator_provider, creator_signer, creator_cred) = new_client("alice", ciphersuite);
-    let mut creator_group = ApqMlsGroup::builder()
-        .set_mode(mode)
-        .with_ciphersuite(ciphersuite)
-        .build(&creator_provider, &creator_signer, creator_cred)
-        .unwrap();
+    info!("Measuring {label} with {group_size} members");
 
-    let mut members: Vec<Member> = vec![];
+    let mut clients = Vec::with_capacity(group_size);
+
+    let mut creator_client = new_client("alice", ciphersuite);
+    let creator_provider = Provider::new(&mut creator_client.connection);
+    creator_client.group = Some(
+        ApqMlsGroup::builder()
+            .set_mode(mode)
+            .with_ciphersuite(ciphersuite)
+            .build(
+                &creator_provider,
+                &creator_client.signer,
+                creator_client.cred.clone(),
+            )
+            .unwrap(),
+    );
+    clients.push(creator_client);
+    info!("Creator group built");
+
     let mut last_kp_bytes = 0usize;
     let mut last_add_commit_bytes = 0usize;
     let mut last_welcome_bytes = 0usize;
 
+    // Create all member clients and their key packages upfront
+    let mut kps = vec![];
+
     for i in 1..group_size {
-        let (member_provider, member_signer, member_cred) =
-            new_client(&format!("member_{i}"), ciphersuite);
+        let mut member_client = new_client(&format!("member-{i}"), ciphersuite);
+        let member_provider = Provider::new(&mut member_client.connection);
 
         let kp = ApqKeyPackage::builder()
-            .build(&member_provider, ciphersuite, &member_signer, member_cred)
+            .build(
+                &member_provider,
+                ciphersuite,
+                &member_client.signer,
+                member_client.cred.clone(),
+            )
             .unwrap()
             .into_key_package();
 
@@ -307,75 +353,87 @@ fn measure(
             .unwrap()
             .len();
 
+        kps.push(kp);
+        clients.push(member_client);
+    }
+    info!("Key packages built");
+
+    // Add all members in a single commit
+    if !kps.is_empty() {
+        let creator_client = &mut clients[0];
+        let creator_provider = Provider::new(&mut creator_client.connection);
+        let creator_group = creator_client.group.as_mut().unwrap();
         let bundle = creator_group
             .commit_builder()
-            .propose_adds([kp])
-            .finalize(&creator_provider, &creator_signer, |_| true, |_| true)
+            .propose_adds(kps)
+            .finalize(
+                &creator_provider,
+                &creator_client.signer,
+                |_| true,
+                |_| true,
+            )
             .unwrap();
         creator_group
             .merge_pending_commit(&creator_provider)
             .unwrap();
 
         last_add_commit_bytes = bundle.commit.tls_serialize_detached().unwrap().len();
-        let commit_for_members = bundle.commit.clone();
 
         let welcome_out = ApqMlsMessageOut::from(bundle.welcome.unwrap());
         let welcome_bytes = welcome_out.tls_serialize_detached().unwrap();
         last_welcome_bytes = welcome_bytes.len();
 
-        let welcome = ApqMlsMessageIn::tls_deserialize_exact(&welcome_bytes[..])
-            .unwrap()
-            .into_welcome()
-            .unwrap();
-
         let ratchet_tree = creator_group.export_ratchet_tree();
-        let member_group = ApqMlsGroup::new_from_welcome(
-            &member_provider,
-            &MlsGroupJoinConfig::default(),
-            welcome,
-            Some(ratchet_tree.into()),
-        )
-        .unwrap();
 
-        for m in &mut members {
-            process_commit_on_member(m, &commit_for_members);
+        for client in clients.iter_mut().skip(1) {
+            let welcome = ApqMlsMessageIn::tls_deserialize_exact(&welcome_bytes[..])
+                .unwrap()
+                .into_welcome()
+                .unwrap();
+            let provider = Provider::new(&mut client.connection);
+            let member_group = ApqMlsGroup::new_from_welcome(
+                &provider,
+                &MlsGroupJoinConfig::default(),
+                welcome,
+                Some(ratchet_tree.clone().into()),
+            )
+            .unwrap();
+            client.group = Some(member_group);
         }
+    }
+    info!("Member groups built");
 
-        members.push(Member {
-            provider: member_provider,
-            group: member_group,
+    // One self-update per member; creator and other members process each commit
+    let mut update_commit_total = 0usize;
+    for i in 1..clients.len() {
+        let commit = clients[i].self_update();
+
+        update_commit_total += commit.tls_serialize_detached().unwrap().len();
+
+        // Process the commit for the creator group
+        clients[0].process_commit(&commit);
+        pb.inc(1);
+
+        // Process the commit for the members *after* this member
+        clients.par_iter_mut().skip(i + 1).for_each(|client| {
+            client.process_commit(&commit);
+            pb.inc(1);
         });
     }
+    info!("Updates processed");
 
-    // Run EPOCHS self-update epochs and track average commit size.
-    let mut update_commit_total = 0usize;
-    for _ in 0..EPOCHS {
-        let bundle = creator_group
-            .commit_builder()
-            .force_self_update(true)
-            .finalize(&creator_provider, &creator_signer, |_| true, |_| true)
-            .unwrap();
-        creator_group
-            .merge_pending_commit(&creator_provider)
-            .unwrap();
-
-        update_commit_total += bundle.commit.tls_serialize_detached().unwrap().len();
-        let commit_for_members = bundle.commit.clone();
-        for m in &mut members {
-            process_commit_on_member(m, &commit_for_members);
-        }
-    }
-
-    let creator_storage_bytes = storage_size(&creator_provider);
-    let member_storage_bytes = if members.is_empty() {
+    let creator_storage_bytes = storage_size(&mut clients[0].connection);
+    let member_storage_bytes = if clients.is_empty() {
         StorageSize::default()
     } else {
-        members
-            .iter()
-            .map(|m| storage_size(&m.provider))
+        clients
+            .iter_mut()
+            .skip(1)
+            .map(|client| storage_size(&mut client.connection))
             .fold(StorageSize::default(), |a, b| a + b)
-            / members.len()
+            / (clients.len() - 1)
     };
+    info!("Storage sizes computed");
 
     SizeReport {
         label,
@@ -383,13 +441,21 @@ fn measure(
         key_package_bytes: last_kp_bytes,
         add_commit_bytes: last_add_commit_bytes,
         welcome_bytes: last_welcome_bytes,
-        update_commit_bytes: update_commit_total / EPOCHS,
+        update_commit_bytes: if clients.is_empty() {
+            0
+        } else {
+            update_commit_total / (clients.len() - 1)
+        },
         creator_storage_bytes,
         member_storage_bytes,
     }
 }
 
 fn main() {
+    tracing_subscriber::fmt::fmt()
+        .with_writer(std::io::stderr)
+        .init();
+
     const T_CIPHERSUITE: Ciphersuite = Ciphersuite::MLS_128_MLKEM768X25519_AES128GCM_SHA256_Ed25519;
 
     let configs: &[(&'static str, PqtMode, ApqCiphersuite)] = &[
@@ -436,12 +502,34 @@ fn main() {
     ];
 
     // Collect all results first
-    let mut reports = Vec::new();
-    for &(label, mode, ciphersuite) in configs {
-        for &size in GROUP_SIZES {
-            reports.push(measure(mode, ciphersuite, size, label));
-        }
-    }
+    let tasks: Vec<_> = configs
+        .iter()
+        .rev()
+        .flat_map(|&(label, mode, ciphersuite)| {
+            GROUP_SIZES
+                .iter()
+                .map(move |&size| (label, mode, ciphersuite, size))
+        })
+        .collect();
+
+    let total: u64 = tasks
+        .iter()
+        .map(|(_, _, _, s)| (s.saturating_sub(1) * s / 2) as u64)
+        .sum();
+    let pb = ProgressBar::new(total);
+    pb.set_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} (eta {eta}) {per_sec}",
+        )
+        .unwrap()
+        .progress_chars("=>-"),
+    );
+
+    let reports: Vec<SizeReport> = tasks
+        .into_iter()
+        .map(|(label, mode, ciphersuite, size)| measure(mode, ciphersuite, size, label, &pb))
+        .collect();
+    pb.finish_and_clear();
 
     // TABLE 1: Performance Summary
     println!("\n### TABLE 1: Summary (Bytes)\n");
