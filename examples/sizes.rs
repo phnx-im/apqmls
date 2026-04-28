@@ -30,7 +30,7 @@ use serde::Serialize;
 use tls_codec::{Deserialize as _, Serialize as _};
 use tracing::{info, instrument};
 
-const GROUP_SIZES: &[usize] = &[100, 500];
+const GROUP_SIZES: &[usize] = &[100];
 
 #[derive(Default)]
 struct StorageSize {
@@ -154,9 +154,9 @@ fn storage_size(connection: &mut rusqlite::Connection) -> StorageSize {
     }
 
     let mut stmt = connection.prepare("PRAGMA page_count").unwrap();
-    let page_count: i64 = stmt.query_one([], |row| row.get(0)).unwrap();
+    let page_count: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
     let mut stmt = connection.prepare("PRAGMA page_size").unwrap();
-    let page_size: i64 = stmt.query_one([], |row| row.get(0)).unwrap();
+    let page_size: i64 = stmt.query_row([], |row| row.get(0)).unwrap();
     sizes.full_db = (page_count * page_size).try_into().unwrap();
 
     sizes
