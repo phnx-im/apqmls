@@ -30,7 +30,7 @@ use serde::Serialize;
 use tls_codec::{Deserialize as _, Serialize as _};
 use tracing::{info, instrument};
 
-const GROUP_SIZES: &[usize] = &[100];
+const GROUP_SIZES: &[usize] = &[100, 500];
 
 #[derive(Default)]
 struct StorageSize {
@@ -180,7 +180,8 @@ struct SizeReport {
     key_package_bytes: usize,
     add_commit_bytes: usize,
     welcome_bytes: usize,
-    update_commit_bytes: usize,
+    update_commit_bytes_min: usize,
+    update_commit_bytes_max: usize,
     creator_storage_bytes: StorageSize,
     member_storage_bytes: StorageSize,
 }
@@ -404,11 +405,20 @@ fn measure(
     info!("Member groups built");
 
     // One self-update per member; creator and other members process each commit
-    let mut update_commit_total = 0usize;
+    let mut update_commit_bytes_min = 0usize;
+    let mut update_commit_bytes_max = 0usize;
+
     for i in 1..clients.len() {
         let commit = clients[i].self_update();
 
-        update_commit_total += commit.tls_serialize_detached().unwrap().len();
+        let commit_bytes = commit.tls_serialize_detached().unwrap().len();
+        if update_commit_bytes_min == 0 {
+            update_commit_bytes_min = commit_bytes;
+            update_commit_bytes_max = commit_bytes;
+        } else {
+            update_commit_bytes_min = update_commit_bytes_min.min(commit_bytes);
+        }
+        update_commit_bytes_max = update_commit_bytes_max.max(commit_bytes);
 
         // Process the commit for the creator group
         clients[0].process_commit(&commit);
@@ -441,11 +451,8 @@ fn measure(
         key_package_bytes: last_kp_bytes,
         add_commit_bytes: last_add_commit_bytes,
         welcome_bytes: last_welcome_bytes,
-        update_commit_bytes: if clients.is_empty() {
-            0
-        } else {
-            update_commit_total / (clients.len() - 1)
-        },
+        update_commit_bytes_min,
+        update_commit_bytes_max,
         creator_storage_bytes,
         member_storage_bytes,
     }
@@ -534,20 +541,21 @@ fn main() {
     // TABLE 1: Performance Summary
     println!("\n### TABLE 1: Summary (Bytes)\n");
     println!(
-        "{:<45} {:>7} {:>10} {:>12} {:>10} {:>14} {:>12} {:>12}",
-        "Ciphersuite", "Members", "KP", "Add", "Welc", "Upd", "Creator", "Member"
+        "{:<45} {:>7} {:>10} {:>12} {:>10} {:>12} {:>12} {:>12} {:>12}",
+        "Ciphersuite", "Members", "KP", "Add", "Welc", "Upd min", "Upd max", "Creator", "Member"
     );
-    println!("{}", "-".repeat(129));
+    println!("{}", "-".repeat(141));
 
     for r in &reports {
         println!(
-            "{:<45} {:>7} {:>10} {:>12} {:>10} {:>14} {:>12} {:>12}",
+            "{:<45} {:>7} {:>10} {:>12} {:>10} {:>12} {:>12} {:>12} {:>12}",
             r.label,
             commify(r.group_size),
             commify(r.key_package_bytes),
             commify(r.add_commit_bytes),
             commify(r.welcome_bytes),
-            commify(r.update_commit_bytes),
+            commify(r.update_commit_bytes_min),
+            commify(r.update_commit_bytes_max),
             commify(r.creator_storage_bytes.full_db),
             commify(r.member_storage_bytes.full_db)
         );
