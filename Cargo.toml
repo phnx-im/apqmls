@@ -11,17 +11,17 @@ edition = "2024"
 license = "AGPL-3.0-or-later"
 
 [dependencies]
-openmls = { git = "https://github.com/openmls/openmls.git", features = [
+openmls = { version = "0.8.1", features = [
     "extensions-draft-08",
+    "draft-ietf-mls-pq-ciphersuites",
 ] }
-openmls_basic_credential = { git = "https://github.com/openmls/openmls.git", features = [
+openmls_traits = { version = "0.5.0", features = [
+    "extensions-draft-08",
+    "draft-ietf-mls-pq-ciphersuites",
+] }
+openmls_basic_credential = { version = "0.5.0", features = [
     "clonable",
-] }
-openmls_traits = { git = "https://github.com/openmls/openmls.git", features = [
-    "extensions-draft-08",
-] }
-openmls_memory_storage = { git = "https://github.com/openmls/openmls.git", features = [
-    "extensions-draft-08",
+    "draft-ietf-mls-pq-ciphersuites",
 ] }
 serde = "1.0.219"
 tap = "1.0.1"
@@ -29,25 +29,49 @@ thiserror = "2.0.12"
 tls_codec = "0.4.2"
 
 [dev-dependencies]
-openmls_rust_crypto = { git = "https://github.com/openmls/openmls.git" }
+openmls_rust_crypto = { version = "0.5.1", features = [
+    "draft-ietf-mls-pq-ciphersuites",
+] }
+openmls_sqlite_storage = { version = "0.2.0", features = [
+    "extensions-draft-08",
+    "draft-ietf-mls-pq-ciphersuites",
+] }
+openmls_memory_storage = { version = "0.5.0", features = [
+    "extensions-draft-08",
+    "draft-ietf-mls-pq-ciphersuites",
+] }
 
-[patch."https://github.com/openmls/openmls.git"]
-# feat: Post-Quantum Cryptography support (ML-KEM + ML-DSA)
-# <https://github.com/openmls/openmls/pull/1994>
-openmls = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
-openmls_basic_credential = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
-openmls_rust_crypto = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
-openmls_traits = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
-openmls_memory_storage = { git = "https://github.com/boxdot/openmls.git", rev = "6dbc03016f2f0c33d1a358d5427c2d6075f1da34" }
+ciborium = "0.2"
+rusqlite = { version = "0.32", features = ["bundled"] }
+indicatif = "0.18"
+rayon = "1"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
 
 [patch.crates-io]
+# Use the several commits after the 0.8.1 release exposing methods as public APIs, in particular:
+# <https://github.com/openmls/openmls/commit/04c50d7fb12d52f4f9aee26de5f5234f3df29fa8>
+# <https://github.com/openmls/openmls/commit/b73621ba14ead6b32636a4e910f2cbfabb0d1ee9>
+#
+# Also, use the post-quantum-support branch of openmls.
+openmls = { git = "https://github.com/boxdot/openmls", branch = "dima/post-quantum-support" }
+openmls_rust_crypto = { git = "https://github.com/boxdot/openmls", branch = "dima/post-quantum-support" }
+openmls_traits = { git = "https://github.com/boxdot/openmls", branch = "dima/post-quantum-support" }
+openmls_memory_storage = { git = "https://github.com/boxdot/openmls", branch = "dima/post-quantum-support" }
+openmls_sqlite_storage = { git = "https://github.com/boxdot/openmls", branch = "dima/post-quantum-support" }
+openmls_basic_credential = { git = "https://github.com/boxdot/openmls", branch = "dima/post-quantum-support" }
+# openmls = { path = "../openmls/openmls" }
+# openmls_rust_crypto = { path = "../openmls/openmls_rust_crypto" }
+# openmls_traits = { path = "../openmls/traits" }
+# openmls_memory_storage = { path = "../openmls/memory_storage" }
+# openmls_sqlite_storage = { path = "../openmls/sqlite_storage" }
+# openmls_basic_credential = { path = "../openmls/basic_credential" }
+
 # feat: add p384 support
 # <https://github.com/cryspen/hpke-rs/pull/150>
-hpke-rs = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
-hpke-rs-crypto = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
-hpke-rs-rust-crypto = { git = "https://github.com/cryspen/hpke-rs", rev = "eeeb9ed4204b608f257ec69166e67e25ebe8c8bd" }
-
-[package.metadata.cargo-machete]
-ignored = [
-    "openmls_memory_storage", # include to enable the `extensions-draft-08` feature
-]
+hpke-rs = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }
+hpke-rs-crypto = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }
+hpke-rs-rust-crypto = { git = "https://github.com/boxdot/hpke-rs", branch = "dima/p384" }
+# hpke-rs = { path = "../hpke-rs" }
+# hpke-rs-crypto = { path = "../hpke-rs/traits/" }
+# hpke-rs-rust-crypto = { path = "../hpke-rs/rust_crypto_provider/" }
