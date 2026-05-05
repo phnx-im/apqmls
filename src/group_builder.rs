@@ -49,6 +49,7 @@ pub struct GroupBuilder {
     // later.
     group_ids: Option<ApqGroupId>,
     mode: PqtMode,
+    ciphersuite: Option<ApqCiphersuite>,
     capabilities: Capabilities,
     t_extensions: Extensions<GroupContext>,
     pq_extensions: Extensions<GroupContext>,
@@ -62,6 +63,13 @@ impl GroupBuilder {
     /// Sets the [`PqtMode`] mode of the [`ApqMlsGroup`].
     pub fn set_mode(mut self, mode: PqtMode) -> Self {
         self.mode = mode;
+        self
+    }
+
+    /// Overrides the ciphersuite used for both groups. If not set, the default
+    /// ciphersuite for the configured [`PqtMode`] is used.
+    pub fn with_ciphersuite(mut self, ciphersuite: ApqCiphersuite) -> Self {
+        self.ciphersuite = Some(ciphersuite);
         self
     }
 
@@ -83,10 +91,10 @@ impl GroupBuilder {
         signer: &impl ApqSigner,
         credential_with_key: ApqCredentialWithKey,
     ) -> Result<ApqMlsGroup, NewGroupError<Provider::StorageError>> {
-        let ciphersuite = match self.mode {
+        let ciphersuite = self.ciphersuite.unwrap_or_else(|| match self.mode {
             PqtMode::ConfOnly => ApqCiphersuite::default_pq_conf(),
             PqtMode::ConfAndAuth => ApqCiphersuite::default_pq_conf_and_auth(),
-        };
+        });
 
         // Add extension to capabilities.
         let capabilities = self

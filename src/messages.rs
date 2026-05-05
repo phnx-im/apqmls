@@ -121,6 +121,7 @@ impl From<ApqWelcome> for ApqMlsMessageOut {
 }
 
 /// A ratchet tree for an [`crate::ApqMlsGroup`].
+#[derive(Clone)]
 pub struct ApqRatchetTree {
     pub(crate) t_ratchet_tree: RatchetTree,
     pub(crate) pq_ratchet_tree: RatchetTree,
@@ -151,7 +152,9 @@ pub struct ApqKeyPackage {
 impl ApqKeyPackage {
     pub fn mode(&self) -> PqtMode {
         match self.pq_key_package.ciphersuite() {
-            Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87 => PqtMode::ConfAndAuth,
+            Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87
+            | Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA384_MLDSA87
+            | Ciphersuite::MLS_192_MLKEM768_AES256GCM_SHA384_MLDSA65 => PqtMode::ConfAndAuth,
             _ => PqtMode::ConfOnly,
         }
     }
