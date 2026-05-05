@@ -13,7 +13,7 @@ use openmls::{
 use tap::Pipe;
 use tls_codec::{Deserialize as _, Serialize as _, TlsDeserialize, TlsSerialize, TlsSize};
 
-use crate::{ApqCiphersuite, ApqGroupId, ApqMlsGroup};
+use crate::{ApqCiphersuite, ApqGroupId, ApqMlsGroup, ApqMlsGroupMut};
 
 /// The component ID of the APQMLS component.
 ///
@@ -161,6 +161,13 @@ pub(super) fn ensure_leaf_node_component_support(
 }
 
 impl ApqMlsGroup {
+    /// Get the APQMLS component from the group, if it exists.
+    pub fn apq_info(&self) -> Option<ApqInfo> {
+        ApqInfo::from_extensions(self.t_group.extensions()).ok()?
+    }
+}
+
+impl ApqMlsGroupMut<'_> {
     /// Get the APQMLS component from the group, if it exists.
     pub fn apq_info(&self) -> Option<ApqInfo> {
         ApqInfo::from_extensions(self.t_group.extensions()).ok()?
