@@ -4,8 +4,8 @@
 
 use openmls::{
     group::{
-        JoinBuilder as OpenMlsJoinBuilder, LeafNodeLifetimePolicy, MlsGroupJoinConfig,
-        MlsGroup, ProcessedWelcome, StagedWelcome, WelcomeError as OpenMlsWelcomeError,
+        JoinBuilder as OpenMlsJoinBuilder, LeafNodeLifetimePolicy, MlsGroup, MlsGroupJoinConfig,
+        ProcessedWelcome, StagedWelcome, WelcomeError as OpenMlsWelcomeError,
     },
     prelude::Ciphersuite,
     storage::OpenMlsProvider,
