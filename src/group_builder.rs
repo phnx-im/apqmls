@@ -108,18 +108,13 @@ impl GroupBuilder {
             .unwrap_or_else(|| ApqGroupId::random(provider.rand()));
 
         // Add required capabilities extension
-        let rc_extension = RequiredCapabilitiesExtension::new(
-            &[
-                ExtensionType::RequiredCapabilities,
-                ExtensionType::AppDataDictionary,
-            ],
-            &[ProposalType::AppDataUpdate],
-            &[],
-        )
-        .pipe(Extension::RequiredCapabilities);
+        let t_rc = merged_required_capabilities(self.t_extensions.required_capabilities())
+            .pipe(Extension::RequiredCapabilities);
+        let pq_rc = merged_required_capabilities(self.pq_extensions.required_capabilities())
+            .pipe(Extension::RequiredCapabilities);
 
-        self.t_extensions.add_or_replace(rc_extension.clone())?;
-        self.pq_extensions.add_or_replace(rc_extension)?;
+        self.t_extensions.add_or_replace(t_rc)?;
+        self.pq_extensions.add_or_replace(pq_rc)?;
 
         let info = ApqInfo {
             t_session_group_id: apq_group_id.t_group_id.clone(),
@@ -276,4 +271,33 @@ impl GroupBuilder {
         // We set the capabilities for both groups in `build`.
         self
     }
+}
+
+fn merged_required_capabilities(
+    existing: Option<&RequiredCapabilitiesExtension>,
+) -> RequiredCapabilitiesExtension {
+    let mut extension_types = vec![
+        ExtensionType::RequiredCapabilities,
+        ExtensionType::AppDataDictionary,
+    ];
+    let mut proposal_types = vec![ProposalType::AppDataUpdate];
+    let mut credential_types = vec![];
+    if let Some(rq) = existing {
+        for &et in rq.extension_types() {
+            if !extension_types.contains(&et) {
+                extension_types.push(et);
+            }
+        }
+        for &pt in rq.proposal_types() {
+            if !proposal_types.contains(&pt) {
+                proposal_types.push(pt);
+            }
+        }
+        for &ct in rq.credential_types() {
+            if !credential_types.contains(&ct) {
+                credential_types.push(ct);
+            }
+        }
+    }
+    RequiredCapabilitiesExtension::new(&extension_types, &proposal_types, &credential_types)
 }
