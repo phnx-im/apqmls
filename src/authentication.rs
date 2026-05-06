@@ -8,7 +8,10 @@ use openmls::prelude::{
     BasicCredential, CredentialWithKey, CryptoError, SignaturePublicKey, SignatureScheme,
 };
 use openmls_basic_credential::SignatureKeyPair;
-use openmls_traits::storage::{self, CURRENT_VERSION};
+use openmls_traits::{
+    signatures::Signer,
+    storage::{self, CURRENT_VERSION},
+};
 use serde::{Deserialize, Serialize};
 use tap::Pipe;
 use tls_codec::{Serialize as _, TlsDeserialize, TlsSerialize, TlsSize};
@@ -57,22 +60,11 @@ impl ApqCredentialWithKey {
 
 /// A trait for types that can sign messages in APQMLS.
 pub trait ApqSigner {
-    fn t_signer(&self) -> &SignatureKeyPair;
-    fn pq_signer(&self) -> &SignatureKeyPair;
+    type TSigner: Signer;
+    type PqSigner: Signer;
 
-    fn t_verifying_key(&self) -> &[u8] {
-        self.t_signer().public()
-    }
-    fn pq_verifying_key(&self) -> &[u8] {
-        self.pq_signer().public()
-    }
-
-    fn verifying_key(&self) -> ApqVerifyingKey {
-        ApqVerifyingKey {
-            t_verifying_key: self.t_verifying_key().into(),
-            pq_verifying_key: self.pq_verifying_key().into(),
-        }
-    }
+    fn t_signer(&self) -> &Self::TSigner;
+    fn pq_signer(&self) -> &Self::PqSigner;
 }
 
 /// The signature scheme of a [`ApqSigner`].
@@ -111,15 +103,18 @@ impl ApqSignatureKeyPair {
 
     pub fn id(&self) -> ApqStorageId {
         ApqStorageId {
-            t_signature_scheme: self.t_signer().signature_scheme(),
-            t_verifying_key: self.t_verifying_key().to_vec(),
-            pq_signature_scheme: self.pq_signer().signature_scheme(),
-            pq_verifying_key: self.pq_verifying_key().to_vec(),
+            t_signature_scheme: self.t_signer.signature_scheme(),
+            t_verifying_key: self.t_signer.public().to_vec(),
+            pq_signature_scheme: self.pq_signer.signature_scheme(),
+            pq_verifying_key: self.pq_signer.public().to_vec(),
         }
     }
 }
 
 impl ApqSigner for ApqSignatureKeyPair {
+    type TSigner = SignatureKeyPair;
+    type PqSigner = SignatureKeyPair;
+
     fn t_signer(&self) -> &SignatureKeyPair {
         &self.t_signer
     }

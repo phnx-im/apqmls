@@ -5,26 +5,36 @@
 use openmls::{
     group::GroupEpoch,
     prelude::{
-        Ciphersuite, Credential, KeyPackage, KeyPackageIn, MlsMessageBodyIn, MlsMessageIn,
-        MlsMessageOut, OpenMlsCrypto, OpenMlsSignaturePublicKey, ProtocolMessage, ProtocolVersion,
-        RatchetTreeIn, SignatureError, Verifiable as _, Welcome,
+        Ciphersuite, Credential, KeyPackage, KeyPackageIn, KeyPackageVerifyError, MlsMessageBodyIn,
+        MlsMessageIn, MlsMessageOut, OpenMlsCrypto, OpenMlsSignaturePublicKey, ProtocolMessage,
+        ProtocolVersion, RatchetTreeIn, SignatureError, Verifiable as _, Welcome,
         group_info::{GroupInfo, VerifiableGroupInfo},
     },
     treesync::RatchetTree,
 };
 use serde::{Deserialize, Serialize};
-use tls_codec::{Deserialize as _, Serialize as _, TlsDeserialize, TlsSerialize, TlsSize};
+use tls_codec::{
+    Deserialize as _, Serialize as _, TlsDeserialize, TlsDeserializeBytes, TlsSerialize, TlsSize,
+};
 
 use crate::{ApqGroupId, authentication::ApqVerifyingKey, extension::PqtMode};
 
 /// An incoming message for processing by an [`crate::ApqMlsGroup`].
-#[derive(Debug, Clone, TlsDeserialize, TlsSize)]
+#[derive(Debug, Clone, TlsDeserialize, TlsDeserializeBytes, TlsSize)]
 pub struct ApqMlsMessageIn {
     pub(crate) t_message: MlsMessageIn,
     pub(crate) pq_message: MlsMessageIn,
 }
 
 impl ApqMlsMessageIn {
+    pub fn t_message(&self) -> &MlsMessageIn {
+        &self.t_message
+    }
+
+    pub fn pq_message(&self) -> &MlsMessageIn {
+        &self.pq_message
+    }
+
     pub fn into_welcome(self) -> Option<ApqWelcome> {
         let MlsMessageBodyIn::Welcome(t_welcome) = self.t_message.extract() else {
             return None;
@@ -90,6 +100,12 @@ pub struct ApqMlsMessageOut {
     pub(crate) pq_message: MlsMessageOut,
 }
 
+impl ApqMlsMessageOut {
+    pub fn split(self) -> (MlsMessageOut, MlsMessageOut) {
+        (self.t_message, self.pq_message)
+    }
+}
+
 impl TryFrom<ApqMlsMessageOut> for ApqMlsMessageIn {
     type Error = tls_codec::Error;
 
@@ -106,9 +122,27 @@ impl TryFrom<ApqMlsMessageOut> for ApqMlsMessageIn {
 }
 
 /// A welcome message for joining an [`crate::ApqMlsGroup`].
+#[derive(Debug, Clone, TlsSerialize, TlsDeserializeBytes, TlsSize, Serialize, Deserialize)]
 pub struct ApqWelcome {
     pub(crate) t_welcome: Welcome,
     pub(crate) pq_welcome: Welcome,
+}
+
+impl ApqWelcome {
+    pub fn new(t_welcome: Welcome, pq_welcome: Welcome) -> Self {
+        Self {
+            t_welcome,
+            pq_welcome,
+        }
+    }
+
+    pub fn split(self) -> (Welcome, Welcome) {
+        let Self {
+            t_welcome,
+            pq_welcome,
+        } = self;
+        (t_welcome, pq_welcome)
+    }
 }
 
 impl From<ApqWelcome> for ApqMlsMessageOut {
@@ -142,14 +176,42 @@ pub struct ApqRatchetTreeIn {
     pub(crate) pq_ratchet_tree: RatchetTreeIn,
 }
 
+impl ApqRatchetTreeIn {
+    pub fn new(t_ratchet_tree: RatchetTreeIn, pq_ratchet_tree: RatchetTreeIn) -> Self {
+        Self {
+            t_ratchet_tree,
+            pq_ratchet_tree,
+        }
+    }
+
+    pub fn split(self) -> (RatchetTreeIn, RatchetTreeIn) {
+        (self.t_ratchet_tree, self.pq_ratchet_tree)
+    }
+}
+
 /// A key package to add members to an [`crate::ApqMlsGroup`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApqKeyPackage {
     pub(crate) t_key_package: KeyPackage,
     pub(crate) pq_key_package: KeyPackage,
 }
 
 impl ApqKeyPackage {
+    pub fn new(t_key_package: KeyPackage, pq_key_package: KeyPackage) -> Self {
+        Self {
+            t_key_package,
+            pq_key_package,
+        }
+    }
+
+    pub fn t_key_package(&self) -> &KeyPackage {
+        &self.t_key_package
+    }
+
+    pub fn pq_key_package(&self) -> &KeyPackage {
+        &self.pq_key_package
+    }
+
     pub fn mode(&self) -> PqtMode {
         match self.pq_key_package.ciphersuite() {
             Ciphersuite::MLS_256_MLKEM1024_AES256GCM_SHA512_MLDSA87
@@ -185,7 +247,24 @@ pub struct ApqKeyPackageIn {
     pub(crate) pq_key_package: KeyPackageIn,
 }
 
+impl ApqKeyPackageIn {
+    pub fn new(t_key_package: KeyPackageIn, pq_key_package: KeyPackageIn) -> Self {
+        Self {
+            t_key_package,
+            pq_key_package,
+        }
+    }
+
+    pub fn unwrap_verified(self) -> Result<ApqKeyPackage, KeyPackageVerifyError> {
+        Ok(ApqKeyPackage {
+            t_key_package: self.t_key_package.unwrap_verified()?,
+            pq_key_package: self.pq_key_package.unwrap_verified()?,
+        })
+    }
+}
+
 /// The group info of an [`crate::ApqMlsGroup`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApqGroupInfo {
     pub(crate) t_group_info: GroupInfo,
     pub(crate) pq_group_info: GroupInfo,

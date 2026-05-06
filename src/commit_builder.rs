@@ -5,7 +5,8 @@
 use openmls::{
     group::{
         CommitBuilder as MlsGroupCommitBuilder, CommitBuilderStageError, CommitMessageBundle,
-        CreateCommitError as OpenMlsCreateCommitError, GroupEpoch, Initial, QueuedProposal,
+        CreateCommitError as OpenMlsCreateCommitError, GroupEpoch, Initial, MlsGroup,
+        QueuedProposal,
     },
     prelude::{
         AppDataUpdateProposal, InvalidExtensionError, LeafNodeIndex, LeafNodeParameters,
@@ -13,11 +14,12 @@ use openmls::{
     },
     storage::OpenMlsProvider,
 };
+use serde::{Deserialize, Serialize};
 use tap::Pipe as _;
 use thiserror::Error;
 
 use crate::{
-    ApqMlsGroup,
+    ApqMlsGroup, ApqMlsGroupMut,
     authentication::ApqSigner,
     extension::APQMLS_COMPONENT_ID,
     messages::{ApqGroupInfo, ApqKeyPackage, ApqMlsMessageOut, ApqWelcome},
@@ -42,6 +44,7 @@ pub enum CreateCommitError<StorageError> {
 }
 
 /// A message bundle resulting from a commit operation in APQMLS.
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApqCommitMessageBundle {
     pub commit: ApqMlsMessageOut,
     pub welcome: Option<ApqWelcome>,
@@ -109,6 +112,7 @@ struct ConfigValues {
     pq_leaf_node_parameters: Option<LeafNodeParameters>,
     proposed_adds: Vec<ApqKeyPackage>,
     proposed_removals: Vec<LeafNodeIndex>,
+    create_group_info: bool,
 }
 
 impl ConfigValues {
@@ -148,15 +152,20 @@ impl ConfigValues {
 /// A builder for creating commits in an APQMLS group. This builder can be used
 /// to affect membership changes and issue full updates.
 pub struct CommitBuilder<'a> {
-    group: &'a mut ApqMlsGroup,
+    group: ApqMlsGroupMut<'a>,
     values: ConfigValues,
 }
 
 impl<'a> CommitBuilder<'a> {
-    /// returns a new [`CommitBuilder`] for the given [`openmls::group::MlsGroup`].
+    /// Creates a new [`CommitBuilder`] for the given [`ApqMlsGroup`] group.
     pub fn new(group: &'a mut ApqMlsGroup) -> Self {
+        Self::from_groups(&mut group.t_group, &mut group.pq_group)
+    }
+
+    /// Creates a new [`CommitBuilder`] from the given mutable [`openmls::group::MlsGroup`]s.
+    pub fn from_groups(t_group: &'a mut MlsGroup, pq_group: &'a mut MlsGroup) -> Self {
         Self {
-            group,
+            group: ApqMlsGroupMut::from_groups(t_group, pq_group),
             values: ConfigValues::default(),
         }
     }
@@ -229,6 +238,12 @@ impl<'a> CommitBuilder<'a> {
         self
     }
 
+    /// Sets whether or not a [`GroupInfo`] should be created when the commit is staged.
+    pub fn create_group_info(mut self, create_group_info: bool) -> Self {
+        self.values.create_group_info = create_group_info;
+        self
+    }
+
     /// Perform all steps to finish the builder.
     /// - load the PSKs for the PskProposals marked for inclusion
     /// - build the commit
@@ -266,7 +281,8 @@ impl<'a> CommitBuilder<'a> {
             .add_proposal(Proposal::AppDataUpdate(Box::new(
                 app_data_update_proposal.clone(),
             )))
-            .load_psks(provider.storage())?;
+            .load_psks(provider.storage())?
+            .create_group_info(self.values.create_group_info);
         let mut updater = pq_builder.app_data_dictionary_updater();
         updater.set(apq_info_component_data.clone());
         let changes = updater.changes();
@@ -278,7 +294,7 @@ impl<'a> CommitBuilder<'a> {
         // Prepare the PSK for the T group.
         let psk_proposal = derive_and_store_psk::<_, true>(
             provider,
-            &mut self.group.pq_group,
+            self.group.pq_group,
             self.group.t_group.ciphersuite(),
         )?
         .pipe(PreSharedKeyProposal::new)
@@ -292,7 +308,8 @@ impl<'a> CommitBuilder<'a> {
             .pipe(|b| self.values.apply::<true>(b))
             .add_proposal(psk_proposal)
             .add_proposal(Proposal::AppDataUpdate(Box::new(app_data_update_proposal)))
-            .load_psks(provider.storage())?;
+            .load_psks(provider.storage())?
+            .create_group_info(self.values.create_group_info);
         let mut updater = t_builder.app_data_dictionary_updater();
         updater.set(apq_info_component_data);
         let changes = updater.changes();

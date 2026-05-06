@@ -86,6 +86,14 @@ impl ApqGroupId {
             pq_group_id: GroupId::random(rng),
         }
     }
+
+    pub fn t_group_id(&self) -> &GroupId {
+        &self.t_group_id
+    }
+
+    pub fn pq_group_id(&self) -> &GroupId {
+        &self.pq_group_id
+    }
 }
 
 /// An APQMLS group, consisting of a traditional MLS group and a post-quantum MLS
@@ -97,7 +105,27 @@ pub struct ApqMlsGroup {
     pub t_group: MlsGroup,
 }
 
+pub(crate) struct ApqMlsGroupMut<'a> {
+    t_group: &'a mut MlsGroup,
+    pq_group: &'a mut MlsGroup,
+}
+
+impl<'a> ApqMlsGroupMut<'a> {
+    pub fn from_groups(t_group: &'a mut MlsGroup, pq_group: &'a mut MlsGroup) -> Self {
+        Self { t_group, pq_group }
+    }
+}
+
 impl ApqMlsGroup {
+    /// Create a new APQMLS group from the traditional and post-quantum MLS groups.
+    pub fn from_groups(t_group: MlsGroup, pq_group: MlsGroup) -> Self {
+        Self { t_group, pq_group }
+    }
+
+    pub fn into_groups(self) -> (MlsGroup, MlsGroup) {
+        (self.t_group, self.pq_group)
+    }
+
     /// Returns a reference to the post-quantum group.
     pub fn pq_group(&self) -> &MlsGroup {
         &self.pq_group
