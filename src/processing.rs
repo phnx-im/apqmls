@@ -6,7 +6,10 @@ use std::fmt::Debug;
 
 use openmls::{
     component::ComponentData,
-    group::{AppDataUpdates, MlsGroup, ProcessMessageError, StagedCommit},
+    group::{
+        AppDataUpdates, MlsGroup, ProcessMessageError, ProcessedMessageSafeExportSecretError,
+        StagedCommit, StagedSafeExportSecretError,
+    },
     prelude::{
         AppDataUpdateOperation, Credential, LeafNodeIndex, ProcessedMessage,
         ProcessedMessageContent, Proposal, ProposalIn, ProposalOrRefIn, ProposalType, Sender,
@@ -321,26 +324,36 @@ where
         pq_message.content(),
         ProcessedMessageContent::StagedCommitMessage(_)
     ) {
-        let apq_exporter: Secret = pq_message
-            .safe_export_secret(provider.crypto(), APQMLS_COMPONENT_ID)
-            .map_err(ApqPskError::ExportFromProcessed)?
-            .into();
+        match pq_message.safe_export_secret(provider.crypto(), APQMLS_COMPONENT_ID) {
+            Ok(apq_exporter_bytes) => {
+                let apq_exporter: Secret = apq_exporter_bytes.into();
 
-        let apq_psk_id = apq_exporter
-            .derive_secret(provider.crypto(), t_group.ciphersuite(), "psk_id")
-            .map_err(ApqPskError::DerivingPskId)?;
-        let apq_psk = apq_exporter
-            .derive_secret(provider.crypto(), t_group.ciphersuite(), "psk")
-            .map_err(ApqPskError::DerivingPskId)?;
-        drop(apq_exporter); // Zeroize the secret
+                let apq_psk_id = apq_exporter
+                    .derive_secret(provider.crypto(), t_group.ciphersuite(), "psk_id")
+                    .map_err(ApqPskError::DerivingPskId)?;
+                let apq_psk = apq_exporter
+                    .derive_secret(provider.crypto(), t_group.ciphersuite(), "psk")
+                    .map_err(ApqPskError::DerivingPskId)?;
+                drop(apq_exporter); // Zeroize the secret
 
-        let psk = Psk::Application(ApplicationPsk::new(
-            APQMLS_COMPONENT_ID,
-            apq_psk_id.as_slice().into(),
-        ));
-        let id = PreSharedKeyId::new(t_group.ciphersuite(), provider.rand(), psk)
-            .map_err(ApqPskError::DerivingPskId)?;
-        store_psk(provider, id, apq_psk.as_slice())?;
+                let psk = Psk::Application(ApplicationPsk::new(
+                    APQMLS_COMPONENT_ID,
+                    apq_psk_id.as_slice().into(),
+                ));
+                let id = PreSharedKeyId::new(t_group.ciphersuite(), provider.rand(), psk)
+                    .map_err(ApqPskError::DerivingPskId)?;
+                store_psk(provider, id, apq_psk.as_slice())?;
+            }
+            Err(ProcessedMessageSafeExportSecretError::SafeExportSecretError(
+                StagedSafeExportSecretError::NotGroupMember,
+            )) => {
+                // Special case: the commit removes us from the PQ group.
+                //
+                // Skip PSK injection: the T group commit also removes us, so OpenMLS returns early
+                // before reaching the key schedule.
+            }
+            Err(e) => return Err(ApqPskError::ExportFromProcessed(e).into()),
+        }
     }
 
     let unverified_t_message =
